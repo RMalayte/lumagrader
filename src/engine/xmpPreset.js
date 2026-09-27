@@ -222,11 +222,18 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
     if (!applied.includes('Profile')) applied.push('Black & white')
   }
 
+  // --- Lens corrections (manual) -------------------------------------------------------
+  direct('LensManualDistortionAmount', 'lensDistortion', 'Lens distortion', -100, 100)
+  direct('VignetteAmount', 'lensVignette', 'Lens vignetting', -100, 100)
+  direct('VignetteMidpoint', 'lensVignetteMidpoint', 'Lens vignetting midpoint', 0, 100)
+  const autoCA = r.raw('AutoLateralCA')
+  if (autoCA === '1' || autoCA === 'True') { s.removeCA = true; applied.push('Remove chromatic aberration') }
+
   // --- Not supported -------------------------------------------------------------------
   const unsupported = [
     ['MaskGroupBasedCorrections', 'Masks'], ['GradientBasedCorrections', 'Graduated filters'],
     ['CircularGradientBasedCorrections', 'Radial filters'], ['PaintBasedCorrections', 'Brush adjustments'],
-    ['RetouchInfo', 'Spot removal'], ['LensProfileEnable', 'Lens corrections'],
+    ['RetouchInfo', 'Spot removal'], ['LensProfileEnable', 'Lens profile (use the manual lens sliders)'],
   ]
   for (const [lr, label] of unsupported) {
     const el = r.element(lr)

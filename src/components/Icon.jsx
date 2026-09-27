@@ -30,6 +30,9 @@ const PATHS = {
   loupe: 'M4 4h16v16H4zM4 15l4-4 4 4 3-3 5 5',
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  toDevice: 'M12 3v11M8 10l4 4 4-4M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4',
+  openFile: 'M4 20V5a1 1 0 0 1 1-1h5l2 2h7a1 1 0 0 1 1 1v3M4 20l3-9h15l-3 9z',
+  album: 'M4 8h16v12H4zM6 5h12M8 2h8M4 17l4-4 3 3 3-3 6 6',
   coffee: 'M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3v3M12 3v3',
 }
 

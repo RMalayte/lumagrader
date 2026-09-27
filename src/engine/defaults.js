@@ -85,6 +85,11 @@ export const defaultSettings = () => ({
   curvePointsB: defaultCurvePoints(),
   geometry: defaultGeometry(),
   masks: [],
+  spots: [], // spot removal — see heal.js
+  lensDistortion: 0,
+  lensVignette: 0,
+  lensVignetteMidpoint: 50,
+  removeCA: false,
   sharpen: 0,
   sharpenRadius: 1.0,
   sharpenDetail: 25,

@@ -18,6 +18,8 @@ export const PANEL_KEYS = {
     'colorNoiseReduction', 'colorNoiseDetail', 'colorNoiseSmoothness',
   ],
   masks: ['masks'],
+  optics: ['lensDistortion', 'lensVignette', 'lensVignetteMidpoint', 'removeCA'],
+  healing: ['spots'],
 }
 
 const DEFAULTS = defaultSettings()

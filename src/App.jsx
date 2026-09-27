@@ -4,11 +4,12 @@ import CanvasPreview from './components/CanvasPreview.jsx'
 import ControlsPanel from './components/ControlsPanel.jsx'
 import EditActionsBar from './components/EditActionsBar.jsx'
 import Icon from './components/Icon.jsx'
-import { useProject } from './store/ProjectContext.jsx'
+import { useProject, visibleImages } from './store/ProjectContext.jsx'
 import { useSaveProject } from './hooks/useSaveProject.js'
 import { shouldIgnoreShortcut, isMod } from './engine/keyboard.js'
 import { useMediaQuery, MOBILE_QUERY } from './hooks/useMediaQuery.js'
 import { useSessionRecovery } from './hooks/useSessionRecovery.js'
+import { loadPresets } from './hooks/useProjectStore.js'
 import logo from './assets/logo-wordmark.webp'
 
 // Loaded on first use to keep the initial download small.
@@ -16,6 +17,7 @@ const CatalogView = lazy(() => import('./components/CatalogView.jsx'))
 const ShortcutsHelp = lazy(() => import('./components/ShortcutsHelp.jsx'))
 const AboutDialog = lazy(() => import('./components/AboutDialog.jsx'))
 import { kofiUrl } from './config.js'
+import WhatsNew from './components/WhatsNew.jsx'
 
 const VIEW_MODES = [
   { mode: 'filmstrip', label: 'Filmstrip', icon: 'filmstrip' },
@@ -41,9 +43,16 @@ export default function App() {
   }, [])
   const { state, dispatch, undo, redo } = useProject()
   useSessionRecovery()
+
+  // Saved presets load once at startup, whichever panel or tab is open.
+  useEffect(() => {
+    loadPresets()
+      .then((presets) => dispatch({ type: 'LOAD_CUSTOM_PRESETS', presets }))
+      .catch((err) => console.warn('Loading presets failed', err))
+  }, [dispatch])
   const activePhoto = state.images.find((im) => im.id === state.activeId)
   const editingPhoto = !!activePhoto && state.viewMode !== 'catalog'
-  const { saveProject, saving, hasImages } = useSaveProject()
+  const { saveProject, saveToDevice, saving, hasImages } = useSaveProject()
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const closeAbout = useCallback(() => setShowAbout(false), [])
@@ -78,11 +87,12 @@ export default function App() {
         setShowShortcuts((v) => !v)
         return
       }
-      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && state.images.length) {
+      const shown = visibleImages(state)
+      if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && shown.length) {
         e.preventDefault()
-        const idx = state.images.findIndex((im) => im.id === state.activeId)
-        const next = e.key === 'ArrowRight' ? Math.min(state.images.length - 1, idx + 1) : Math.max(0, idx - 1)
-        if (state.images[next]) dispatch({ type: 'SET_ACTIVE', id: state.images[next].id })
+        const idx = shown.findIndex((im) => im.id === state.activeId)
+        const next = e.key === 'ArrowRight' ? Math.min(shown.length - 1, idx + 1) : Math.max(0, idx - 1)
+        if (shown[next]) dispatch({ type: 'SET_ACTIVE', id: shown[next].id })
         return
       }
       if (/^[0-5]$/.test(e.key) && state.activeId) {
@@ -149,7 +159,7 @@ export default function App() {
           </div>
         )}
         <div className="header-right">
-          {state.viewMode !== 'catalog' && <EditActionsBar onAbout={() => setShowAbout(true)} />}
+          {state.viewMode !== 'catalog' && <EditActionsBar onAbout={() => setShowAbout(true)} onSaveToDevice={hasImages ? saveToDevice : null} />}
           <button
             type="button"
             className={'tbtn' + (state.isDirty ? ' has-changes' : '')}
@@ -160,6 +170,16 @@ export default function App() {
             <Icon name="save" size={15} />
             <span className="btn-label">{saving ? 'Saving…' : state.isDirty || !state.currentProjectId ? 'Save Project' : 'Saved'}</span>
             {state.isDirty && !saving && <span className="unsaved-dot" aria-label="unsaved changes" />}
+          </button>
+          <button
+            type="button"
+            className="tbtn icon-only hide-mobile"
+            onClick={saveToDevice}
+            disabled={saving || !hasImages}
+            aria-label="Save project to device"
+            title="Save project to device (.lumagrader file)"
+          >
+            <Icon name="toDevice" size={16} />
           </button>
           <button type="button" className="tbtn icon-only hide-mobile" onClick={() => setShowShortcuts(true)} aria-label="Keyboard shortcuts (?)" title="Keyboard shortcuts (?)">
             <Icon name="keyboard" size={16} />
@@ -198,6 +218,7 @@ export default function App() {
           <AboutDialog onClose={closeAbout} />
         </Suspense>
       )}
+      <WhatsNew />
     </div>
   )
 }

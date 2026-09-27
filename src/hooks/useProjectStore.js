@@ -23,7 +23,61 @@ function openDB() {
   })
 }
 
-export async function getAllPresets() {
+/**
+ * Asks the browser to keep this site's storage (presets, projects) instead of clearing it
+ * when the device runs low on space. Chrome grants it silently for sites people use or
+ * install; elsewhere it's a harmless no-op.
+ */
+export function requestPersistentStorage() {
+  try {
+    navigator.storage?.persist?.().catch(() => {})
+  } catch {
+    // not supported
+  }
+}
+
+// Presets are also mirrored in localStorage: if the IndexedDB copy is ever lost or can't be
+// opened, they come back from the mirror (and the other way round).
+const PRESET_BACKUP_KEY = 'lumagrader.presetsBackup'
+
+function readPresetBackup() {
+  try {
+    const v = JSON.parse(window.localStorage.getItem(PRESET_BACKUP_KEY) || 'null')
+    return v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+function writePresetBackup(map) {
+  try {
+    window.localStorage.setItem(PRESET_BACKUP_KEY, JSON.stringify(map))
+  } catch {
+    // storage full or blocked — IndexedDB still has them
+  }
+}
+
+/** All saved presets as { name: settings }, from IndexedDB merged with the backup mirror. */
+export async function loadPresets() {
+  const backup = readPresetBackup()
+  let rows = null
+  try {
+    rows = await getAllPresets()
+  } catch (err) {
+    console.warn('Reading presets from IndexedDB failed — using the backup copy', err)
+  }
+  if (!rows) return backup
+  const map = Object.fromEntries(rows.map((r) => [r.name, r.settings]))
+  const onlyInBackup = Object.keys(backup).filter((name) => !(name in map))
+  for (const name of onlyInBackup) {
+    map[name] = backup[name]
+    await putPreset(name, backup[name]).catch(() => {})
+  }
+  writePresetBackup(map)
+  return map
+}
+
+async function getAllPresets() {
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const req = db.transaction(PRESETS_STORE, 'readonly').objectStore(PRESETS_STORE).getAll()
@@ -33,6 +87,12 @@ export async function getAllPresets() {
 }
 
 export async function savePresetToDB(name, settings) {
+  await putPreset(name, settings)
+  writePresetBackup({ ...readPresetBackup(), [name]: settings })
+  requestPersistentStorage()
+}
+
+async function putPreset(name, settings) {
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(PRESETS_STORE, 'readwrite')
@@ -44,12 +104,15 @@ export async function savePresetToDB(name, settings) {
 
 export async function deletePresetFromDB(name) {
   const db = await openDB()
-  return new Promise((resolve, reject) => {
+  await new Promise((resolve, reject) => {
     const tx = db.transaction(PRESETS_STORE, 'readwrite')
     tx.objectStore(PRESETS_STORE).delete(name)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
+  const backup = readPresetBackup()
+  delete backup[name]
+  writePresetBackup(backup)
 }
 
 export async function getAllProjects() {
@@ -71,6 +134,7 @@ export async function getProjectFromDB(id) {
 }
 
 export async function saveProjectToDB(project) {
+  requestPersistentStorage()
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(PROJECTS_STORE, 'readwrite')

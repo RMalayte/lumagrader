@@ -14,6 +14,9 @@ import ColorGradePicker from './ColorGradePicker.jsx'
 import MaskPanel from './MaskPanel.jsx'
 import DetailPanel from './DetailPanel.jsx'
 import ColorPanel from './ColorPanel.jsx'
+import OpticsPanel from './OpticsPanel.jsx'
+import HealPanel from './HealPanel.jsx'
+import SnapshotsPanel from './SnapshotsPanel.jsx'
 
 const LIGHT_SLIDERS = [
   { key: 'exposure', label: 'Exposure', min: -5, max: 5, step: 0.05 }, // stops (EV), like Lightroom
@@ -69,12 +72,13 @@ const GROUPS = [
   {
     id: 'look',
     label: 'Look',
-    panels: ['profile', 'presets', 'luts'],
+    panels: ['profile', 'presets', 'luts', 'snapshots'],
     render: () => (
       <>
         <ColorProfilePicker />
         <PresetChips />
         <LutPanel />
+        <SnapshotsPanel />
       </>
     ),
   },
@@ -104,14 +108,16 @@ const GROUPS = [
   {
     id: 'detail',
     label: 'Detail',
-    panels: ['detail', 'effects'],
+    panels: ['detail', 'effects', 'optics'],
     render: () => (
       <>
         <DetailPanel />
         <SliderGroup id="effects" title="Effects" sliders={EFFECT_SLIDERS} />
+        <OpticsPanel />
       </>
     ),
   },
+  { id: 'heal', label: 'Heal', panels: ['healing'], render: () => <HealPanel /> },
   { id: 'masks', label: 'Masks', panels: ['masks'], render: () => <MaskPanel /> },
 ]
 

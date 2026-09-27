@@ -27,7 +27,7 @@ export default function AboutDialog({ onClose }) {
           <div className="about-hero">
             <img src={logo} alt="LumaGrader by Rax" className="about-logo" width="508" height="120" />
             <div className="about-version">Version {APP_VERSION} · built {BUILD_DATE}</div>
-            <p>Browser-based, Lightroom-style RAW &amp; photo editor. Your photos never leave your device —
+            <p>Browser-based RAW &amp; photo editor. Your photos never leave your device —
               everything runs in this browser; no account, no upload, no tracking.</p>
             {kofiUrl() && (
               <div className="about-support">
@@ -38,6 +38,7 @@ export default function AboutDialog({ onClose }) {
               </div>
             )}
             <div className="about-links">
+              <a href={`${REPO}/blob/main/docs/USER_GUIDE.md`} target="_blank" rel="noopener noreferrer">User guide</a>
               <a href={REPO} target="_blank" rel="noopener noreferrer">Source code (GitHub)</a>
               <a href={`${REPO}/issues`} target="_blank" rel="noopener noreferrer">Report a problem</a>
             </div>
@@ -48,12 +49,8 @@ export default function AboutDialog({ onClose }) {
 
           <h4 className="modal-subhead">License &amp; credits</h4>
           <p className="about-small">
-            © 2026 Rax — released under the MIT License. RAW decoding by LibRaw (LGPL-2.1 / CDDL-1.0) via
+            © 2026 LumaGrader — released under the MIT License. RAW decoding by LibRaw (LGPL-2.1 / CDDL-1.0) via
             libraw-wasm; also uses React, exifr, JSZip, piexifjs and extract-raw-preview (MIT).
-          </p>
-          <p className="about-small">
-            Not affiliated with or endorsed by Adobe. Lightroom is a trademark of Adobe Inc.; “Lightroom-style”
-            describes how the controls behave.
           </p>
         </div>
       </div>

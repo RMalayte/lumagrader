@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
-import { createLinearMask, createRadialMask } from '../engine/masks'
-import { ensureBrushCanvas } from '../engine/brushMaskStore'
-import { previewSizeFor } from '../engine/imageStore'
+import { createLinearMask, createRadialMask, colorRangeSample } from '../engine/masks'
+import { ensureBrushCanvas, touchBrushCanvas } from '../engine/brushMaskStore'
+import { previewSizeFor, peekPreview } from '../engine/imageStore'
+import { renderToCanvas } from '../engine/pipeline'
+import { effectiveSettings } from '../engine/panels'
 
 export default function MaskCanvasOverlay({ active }) {
   const { state, dispatch, liveUpdate, beginEdit, commitEdit, commitPatch } = useProject()
@@ -50,6 +52,28 @@ export default function MaskCanvasOverlay({ active }) {
     const x = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width))
     const y = Math.min(1, Math.max(0, (e.clientY - rect.top) / rect.height))
     return { x, y }
+  }
+
+  // Color range: sample the photo as this mask sees it (everything before it applied).
+  function pickRangeColor(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    const preview = peekPreview(active.id)
+    const idx = masks.findIndex((m) => m.id === selectedMaskId)
+    if (!preview || idx < 0) return
+    const p = getRelPos(e)
+    const out = document.createElement('canvas')
+    renderToCanvas(out, preview, { ...effectiveSettings(active), masks: masks.slice(0, idx) }, state.luts)
+    const x = Math.round(p.x * (out.width - 1)), y = Math.round(p.y * (out.height - 1))
+    const x0 = Math.max(0, x - 2), y0 = Math.max(0, y - 2)
+    const d = out.getContext('2d').getImageData(x0, y0, Math.min(5, out.width - x0), Math.min(5, out.height - y0)).data
+    let r = 0, g = 0, b = 0
+    for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i + 1]; b += d[i + 2] }
+    const n = d.length / 4
+    const color = colorRangeSample(r / n, g / n, b / n)
+    const mask = masks[idx]
+    commitPatch(active.id, { masks: masks.map((m) => (m.id === mask.id ? { ...m, range: { ...(m.range || {}), type: 'color', color } } : m)) })
+    dispatch({ type: 'SET_MASK_PICK_COLOR', on: false })
   }
 
   function updateMasks(nextMasks) {
@@ -200,6 +224,7 @@ export default function MaskCanvasOverlay({ active }) {
   }
 
   function bumpBrushVersion() {
+    touchBrushCanvas(selectedMaskId)
     liveUpdate(active.id, {
       masks: masks.map((m) => (m.id === selectedMaskId ? { ...m, brushVersion: (m.brushVersion || 0) + 1 } : m)),
     })
@@ -213,13 +238,13 @@ export default function MaskCanvasOverlay({ active }) {
         className="mask-canvas-overlay"
         viewBox={`0 0 ${imgW} ${imgH}`}
         preserveAspectRatio="none"
-        style={{ pointerEvents: drawMode || isPaintingBrush ? 'auto' : 'none', cursor: drawMode ? 'crosshair' : isPaintingBrush ? 'crosshair' : 'default' }}
-        onPointerDown={isPaintingBrush ? startPaint : startDraw}
+        style={{ pointerEvents: drawMode || isPaintingBrush || state.maskPickColor ? 'auto' : 'none', cursor: drawMode || isPaintingBrush || state.maskPickColor ? 'crosshair' : 'default' }}
+        onPointerDown={state.maskPickColor ? pickRangeColor : isPaintingBrush ? startPaint : startDraw}
       >
         {masks.map((m) => {
           const isSel = m.id === selectedMaskId
           const stroke = isSel ? 'var(--accent2)' : 'rgba(255,255,255,.55)'
-          if (m.type === 'brush') return null
+          if (m.type !== 'linear' && m.type !== 'radial') return null
           if (m.type === 'linear') {
             return (
               <g key={m.id}>

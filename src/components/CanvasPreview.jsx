@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { useProject } from '../store/ProjectContext'
+import { useProject, visibleImages } from '../store/ProjectContext'
 import { renderImage } from '../engine/pipeline'
 import { releaseCanvas, gpuMaxDimension } from '../engine/webgl/renderer'
 import { useFeedback } from '../store/FeedbackContext'
@@ -15,6 +15,7 @@ import { getDragProxy, previewSizeFor } from '../engine/imageStore'
 import CompareSlider from './CompareSlider.jsx'
 import CropOverlay from './CropOverlay.jsx'
 import MaskCanvasOverlay from './MaskCanvasOverlay.jsx'
+import SpotOverlay from './SpotOverlay.jsx'
 import PhotoInfoOverlay from './PhotoInfoOverlay.jsx'
 import Icon from './Icon.jsx'
 
@@ -129,10 +130,12 @@ export default function CanvasPreview() {
   const outPerSrc = canvasSize.w / (canvasSize.srcW || 1) // output px per source px (crop-aware)
   const previewOutW = previewW * outPerSrc
   const fullOutW = (active?.width || 1) * outPerSrc
-  const wantFullRes = !!active && active.width > previewW * 1.01 && fitW > 0 && fitW * zoom * dpr > previewOutW * 1.05
+  // Phones/tablets stay on the preview at Fit even on very dense screens: a full-size render
+  // there costs hundreds of MB of graphics memory (blank canvas) for no visible gain.
+  const coarse = useMediaQuery('(pointer: coarse)')
+  const wantFullRes = !!active && active.width > previewW * 1.01 && fitW > 0 && fitW * zoom * dpr > previewOutW * 1.05 && (!coarse || zoom > 1.01)
   // Full-size zoom is capped to what the GPU can take (and 4096 px on phones/tablets; 2048 px
   // after a GPU failure) — beyond that the canvas would stay blank.
-  const coarse = useMediaQuery('(pointer: coarse)')
   const fullCap = gpuTrouble ? 2048 : Math.min(gpuMaxDimension(), coarse ? 4096 : Infinity)
   const fullImage = useFullImage(active, wantFullRes, fullCap)
   const oneToOneZoom = fitW > 0 ? fullOutW / (fitW * dpr) : 1
@@ -150,6 +153,7 @@ export default function CanvasPreview() {
     setCropMode(false)
     dispatch({ type: 'SET_SELECTED_MASK', id: null })
     dispatch({ type: 'SET_MASK_DRAW_MODE', mode: null })
+    dispatch({ type: 'SET_SELECTED_SPOT', id: null })
   }, [state.activeId, dispatch])
 
   useEffect(() => {
@@ -159,7 +163,8 @@ export default function CanvasPreview() {
     const source = dragProxy || (wantFullRes && fullImage) || preview
     const srcW = source.naturalWidth ?? source.width
     const raf = requestAnimationFrame(() => {
-      const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : effectiveSettings(active)
+      const overlayId = state.maskOverlay && state.openAccordionId === 'masks' ? state.selectedMaskId : null
+      const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : { ...effectiveSettings(active), _maskOverlayId: overlayId }
       try {
         renderImage(canvas, source, s, state.luts)
       } catch (err) {
@@ -171,7 +176,7 @@ export default function CanvasPreview() {
       if (clipCanvasRef.current && !dragProxy) drawClippingOverlay(canvas, clipCanvasRef.current, state.clipping)
     })
     return () => cancelAnimationFrame(raf)
-  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, recoverFromGpuFailure])
+  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, recoverFromGpuFailure, state.maskOverlay, state.selectedMaskId, state.openAccordionId])
 
   // Track the stage's real size. A ResizeObserver (not window resize) is needed because the
   // stage also shrinks when the mobile tool sheet opens or the header wraps.
@@ -301,7 +306,9 @@ export default function CanvasPreview() {
     const touchLike = e.pointerType !== 'mouse'
     // Touch & hold (no movement) shows the original; released → edited again.
     clearTimeout(holdTimerRef.current)
-    if (touchLike && pointers.size === 1 && !state.maskDrawMode) {
+    // (Not while a tool uses taps on the photo: drawing masks, spot removal.)
+    const photoTool = !!state.maskDrawMode || state.openAccordionId === 'healing'
+    if (touchLike && pointers.size === 1 && !photoTool) {
       holdTimerRef.current = setTimeout(() => setHoldBefore(true), 450)
     } else if (pointers.size > 1) {
       setHoldBefore(false)
@@ -347,13 +354,14 @@ export default function CanvasPreview() {
         const dx = ev.clientX - p.x0
         const dy = ev.clientY - p.y0
         if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && performance.now() - p.t < 700) {
-          const idx = state.images.findIndex((im) => im.id === state.activeId)
-          const next = state.images[idx + (dx < 0 ? 1 : -1)]
+          const shown = visibleImages(state)
+          const idx = shown.findIndex((im) => im.id === state.activeId)
+          const next = shown[idx + (dx < 0 ? 1 : -1)]
           if (next) dispatch({ type: 'SET_ACTIVE', id: next.id })
         }
       }
       // Double-tap (touch) → toggle Fit / 1:1 at that point.
-      if (p && ev.pointerType !== 'mouse' && gestureRef.current?.type === 'pan' && performance.now() - p.t < 250 && Math.hypot(ev.clientX - p.x0, ev.clientY - p.y0) < 10) {
+      if (!photoTool && p && ev.pointerType !== 'mouse' && gestureRef.current?.type === 'pan' && performance.now() - p.t < 250 && Math.hypot(ev.clientX - p.x0, ev.clientY - p.y0) < 10) {
         const last = lastTapRef.current
         if (performance.now() - last.t < 320 && Math.hypot(ev.clientX - last.x, ev.clientY - last.y) < 30) {
           toggleFitOneToOne(ev.clientX, ev.clientY)
@@ -500,6 +508,7 @@ export default function CanvasPreview() {
                 <canvas key={canvasKey} ref={setCanvasEl} style={displaySize} onClick={pickColor} role="img" aria-label={`Edited preview of ${active.name}`} />
                 <canvas ref={clipCanvasRef} className="clip-overlay" hidden={!showClipping} aria-hidden="true" />
                 <MaskCanvasOverlay active={active} />
+                <SpotOverlay active={active} />
               </div>
             )}
           </div>

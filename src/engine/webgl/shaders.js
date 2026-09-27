@@ -324,7 +324,11 @@ precision highp float;
 in vec2 v_uv;
 out vec4 outColor;
 uniform sampler2D u_image;
-uniform int u_maskType; // 0 = linear, 1 = radial, 2 = brush
+uniform int u_maskType; // 0 = linear, 1 = radial, 2 = brush, 3 = whole photo (luminance / color masks)
+uniform int u_rangeType; // 0 = none, 1 = luminance range, 2 = color range, 3 = nothing selected
+uniform vec4 u_rangeParams; // luminance: min, max, smoothness (0–1)  ·  color: tolerance, softness
+uniform vec3 u_rangeColor; // color range: picked colour in Oklab
+uniform bool u_showOverlay; // preview only: tint the selected mask red
 uniform vec4 u_linear;  // x1,y1,x2,y2 (UV space)
 uniform vec4 u_radial;  // cx,cy,rx,ry (normalized to the shorter image edge)
 uniform sampler2D u_brushMask;
@@ -362,6 +366,38 @@ float radialWeight(vec2 uv) {
   return 1.0 - clamp((dist - innerDist) / band, 0.0, 1.0);
 }
 
+float srgbToLin(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
+vec3 toOklab(vec3 c) {
+  vec3 l = vec3(srgbToLin(c.r), srgbToLin(c.g), srgbToLin(c.b));
+  vec3 lms = vec3(
+    0.4122214708 * l.r + 0.5363325363 * l.g + 0.0514459929 * l.b,
+    0.2119034982 * l.r + 0.6806995451 * l.g + 0.1073969566 * l.b,
+    0.0883024619 * l.r + 0.2817188376 * l.g + 0.6299787005 * l.b);
+  lms = pow(max(lms, vec3(0.0)), vec3(1.0 / 3.0));
+  return vec3(
+    0.2104542553 * lms.x + 0.7936177850 * lms.y - 0.0040720468 * lms.z,
+    1.9779984951 * lms.x - 2.4285922050 * lms.y + 0.4505937099 * lms.z,
+    0.0259040371 * lms.x + 0.7827717662 * lms.y - 0.8086757660 * lms.z);
+}
+
+// Range masks (like Lightroom's Luminance / Color Range): select by the pixel's brightness
+// (0–1, perceptual) or by closeness to a picked colour (Oklab; hue/chroma count most).
+float rangeWeight(vec3 c) {
+  if (u_rangeType == 1) {
+    float y = dot(c, vec3(0.2126, 0.7152, 0.0722));
+    float s = 0.005 + u_rangeParams.z * 0.25;
+    return smoothstep(u_rangeParams.x - s, u_rangeParams.x, y) * (1.0 - smoothstep(u_rangeParams.y, u_rangeParams.y + s, y));
+  }
+  if (u_rangeType == 2) {
+    vec3 lab = toOklab(c);
+    float d = length(lab.yz - u_rangeColor.yz) + 0.35 * abs(lab.x - u_rangeColor.x);
+    float tol = u_rangeParams.x;
+    return 1.0 - smoothstep(tol * (1.0 - u_rangeParams.y), tol, d);
+  }
+  if (u_rangeType == 3) return 0.0; // colour not picked yet
+  return 1.0;
+}
+
 void main() {
   vec3 base = texture(u_image, v_uv).rgb;
   // Mask geometry is captured in DOM space (Y=0 at top), but WebGL's v_uv has Y=0 at the
@@ -372,8 +408,11 @@ void main() {
   float w;
   if (u_maskType == 0) w = linearWeight(maskUv);
   else if (u_maskType == 1) w = radialWeight(maskUv);
-  else w = texture(u_brushMask, v_uv).a; // painted with the same upload flip as the main image — no manual flip needed
-  if (u_invert) w = 1.0 - w;
+  else if (u_maskType == 2) w = texture(u_brushMask, v_uv).a; // painted with the same upload flip as the main image — no manual flip needed
+  else w = 1.0;
+  float range = rangeWeight(base);
+  if (u_maskType == 3) w = u_invert ? 1.0 - range : range; // range-only mask: invert the range
+  else w = (u_invert ? 1.0 - w : w) * range; // shape masks: the range refines the (inverted) shape
 
   vec3 c = base * (1.0 + u_exposure);
   c = (c - 0.5) * (1.0 + u_contrast) + 0.5;
@@ -388,7 +427,9 @@ void main() {
   }
   c = clamp(c, 0.0, 1.0);
 
-  outColor = vec4(mix(base, c, w), 1.0);
+  vec3 result = mix(base, c, w);
+  if (u_showOverlay) result = mix(result, vec3(1.0, 0.1, 0.1), w * 0.55);
+  outColor = vec4(result, 1.0);
 }`
 
 // Handles Sharpen (mode 0, with edge-detected Masking), Luminance Noise Reduction

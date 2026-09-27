@@ -9,6 +9,8 @@
 // Decoded pixels live in small LRU caches: 1600px previews for the few most recent photos,
 // and at most ONE full-size image (for 1:1 zoom and export).
 
+import { readJpegOrientation } from './orientation'
+
 export const PREVIEW_MAX = 1600
 export const DRAG_MAX = 720 // lower-res proxy rendered while a slider is being dragged
 const THUMB_MAX = 160
@@ -52,6 +54,59 @@ export async function decodeBlob(blob) {
 
 const closeSource = (src) => src?.close?.()
 
+const HEADER_BYTES = 512 * 1024
+
+/**
+ * Displayed (EXIF-oriented) size of a JPEG, read from its header without decoding, or null
+ * for other formats / unusual files.
+ */
+export async function readJpegSize(blob) {
+  const bytes = new Uint8Array(await blob.slice(0, HEADER_BYTES).arrayBuffer())
+  if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return null
+  let offset = 2
+  while (offset + 9 < bytes.length) {
+    if (bytes[offset] !== 0xff) return null
+    const marker = bytes[offset + 1]
+    if (marker === 0xff) { offset++; continue } // fill byte
+    const size = (bytes[offset + 2] << 8) | bytes[offset + 3]
+    // SOF0–SOF15, except DHT (C4), JPG (C8) and DAC (CC)
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      const height = (bytes[offset + 5] << 8) | bytes[offset + 6]
+      const width = (bytes[offset + 7] << 8) | bytes[offset + 8]
+      if (!width || !height) return null
+      const o = readJpegOrientation(bytes) || 1
+      return o >= 5 ? { width: height, height: width } : { width, height }
+    }
+    if (marker === 0xda) return null
+    offset += 2 + size
+  }
+  return null
+}
+
+/**
+ * Decodes a blob at no more than `maxDim` px on the long side. For large JPEGs the browser
+ * decodes straight to the smaller size (createImageBitmap resize), so a 50–100 MP photo never
+ * needs hundreds of MB of RAM on a phone. Returns { image, width, height } where width/height
+ * are the ORIGINAL size.
+ */
+export async function decodeScaled(blob, maxDim) {
+  let size = null
+  try { size = await readJpegSize(blob) } catch { size = null }
+  if (size && Math.max(size.width, size.height) > maxDim && typeof createImageBitmap === 'function') {
+    const { w, h } = previewSizeFor(size.width, size.height, maxDim)
+    try {
+      const bm = await createImageBitmap(blob, { imageOrientation: 'from-image', resizeWidth: w, resizeHeight: h, resizeQuality: 'high' })
+      // Browsers that ignore the resize or apply it before orientation give a different shape.
+      if (Math.abs(bm.width / bm.height - w / h) < 0.02) return { image: bm, ...size }
+      bm.close()
+    } catch {
+      // fall back to a full decode
+    }
+  }
+  const image = await decodeBlob(blob)
+  return { image, width: image.naturalWidth ?? image.width, height: image.naturalHeight ?? image.height }
+}
+
 function scaledCanvas(source, max) {
   const sw = source.naturalWidth ?? source.width
   const sh = source.naturalHeight ?? source.height
@@ -93,13 +148,16 @@ const fulls = new Map() // id → Promise<HTMLImageElement>
  * height } and seeds the preview cache (so the first photo shows instantly after import).
  */
 export async function makeImageEntry(sourceBlob, id, decoded = null) {
-  const src = decoded || (await decodeBlob(sourceBlob)) // `decoded` skips a re-decode (RAW path)
+  // `decoded` skips a re-decode (RAW path)
+  const { image: src, width, height } = decoded
+    ? { image: decoded, width: decoded.naturalWidth ?? decoded.width, height: decoded.naturalHeight ?? decoded.height }
+    : await decodeScaled(sourceBlob, PREVIEW_MAX)
   try {
     const preview = scaledCanvas(src, PREVIEW_MAX)
     const thumbUrl = await canvasToUrl(scaledCanvas(preview, THUMB_MAX))
     lruSet(previews, id, Promise.resolve(preview), PREVIEW_CACHE)
     lruSet(resolvedPreviews, id, preview, PREVIEW_CACHE)
-    return { sourceBlob, thumbUrl, width: src.naturalWidth ?? src.width, height: src.naturalHeight ?? src.height }
+    return { sourceBlob, thumbUrl, width, height }
   } finally {
     closeSource(src)
   }
@@ -109,7 +167,7 @@ export async function makeImageEntry(sourceBlob, id, decoded = null) {
 export function getPreview(image) {
   let p = lruGet(previews, image.id)
   if (!p) {
-    p = decodeBlob(image.sourceBlob).then((src) => {
+    p = decodeScaled(image.sourceBlob, PREVIEW_MAX).then(({ image: src }) => {
       const canvas = scaledCanvas(src, PREVIEW_MAX)
       closeSource(src)
       lruSet(resolvedPreviews, image.id, canvas, PREVIEW_CACHE)
@@ -161,7 +219,8 @@ export function getFullImage(image, maxDim = Infinity) {
 async function loadFull(image, maxDim) {
   const capped = Number.isFinite(maxDim) && Math.max(image.width, image.height) > maxDim
   if (image.rawDevelop && !capped) return decodeFullRaw(image)
-  const src = toUprightCanvas(await decodeBlob(image.sourceBlob))
+  const decoded = Number.isFinite(maxDim) ? (await decodeScaled(image.sourceBlob, maxDim)).image : await decodeBlob(image.sourceBlob)
+  const src = toUprightCanvas(decoded)
   const sw = src.width, sh = src.height
   if (!Number.isFinite(maxDim) || Math.max(sw, sh) <= maxDim) {
     if (capped) src.reducedSize = true // e.g. a RAW shown from its half-size develop

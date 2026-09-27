@@ -1,7 +1,7 @@
 {
   "name": "LumaGrader by Rax",
   "short_name": "LumaGrader",
-  "description": "Lightroom-style RAW & JPEG photo editor in your browser.",
+  "description": "Free RAW & JPEG photo editor in your browser.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

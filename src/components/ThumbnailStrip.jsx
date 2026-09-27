@@ -1,14 +1,16 @@
 import { useId } from 'react'
-import { useProject } from '../store/ProjectContext'
+import { useProject, visibleImages } from '../store/ProjectContext'
 import { useImportPhotos, FILE_ACCEPT } from '../hooks/useImportPhotos'
 import { isPanelEdited, PANEL_KEYS } from '../engine/panels'
 import Icon from './Icon.jsx'
 import StarRating from './StarRating.jsx'
+import AlbumBar from './AlbumBar.jsx'
 
 export default function ThumbnailStrip() {
   const { state, dispatch } = useProject()
   const { importFiles, importFolder, progress } = useImportPhotos()
   const inputId = useId()
+  const shown = visibleImages(state)
 
   function selectThumb(e, im) {
     if (e.shiftKey || e.metaKey || e.ctrlKey) {
@@ -41,6 +43,8 @@ export default function ThumbnailStrip() {
         <span className="addbtn-label">Folder</span>
       </button>
 
+      {state.images.length > 0 && <AlbumBar />}
+
       {progress && (
         <div className="import-progress" role="progressbar" aria-valuemin={0} aria-valuemax={progress.total} aria-valuenow={progress.done} aria-label="Importing photos">
           <div className="import-progress-bar" style={{ width: `${(progress.done / progress.total) * 100}%` }} />
@@ -48,7 +52,11 @@ export default function ThumbnailStrip() {
         </div>
       )}
 
-      {state.images.map((im, i) => {
+      {state.activeAlbumId && shown.length === 0 && (
+        <p className="album-empty">Empty album — open All photos, pick a photo and tap + next to this album.</p>
+      )}
+
+      {shown.map((im, i) => {
         const isActive = im.id === state.activeId
         const isSelected = state.selectedIds.includes(im.id)
         const edited = Object.keys(PANEL_KEYS).some((p) => isPanelEdited(im.settings, p))
@@ -59,7 +67,7 @@ export default function ThumbnailStrip() {
               className={'thumb-frame' + (isActive ? ' active' : '') + (isSelected ? ' selected' : '')}
               onClick={(e) => selectThumb(e, im)}
               title={`${im.name}\nShift/Ctrl+click to multi-select`}
-              aria-label={`${im.name}, photo ${i + 1} of ${state.images.length}${isSelected ? ', selected' : ''}`}
+              aria-label={`${im.name}, photo ${i + 1} of ${shown.length}${isSelected ? ', selected' : ''}`}
               aria-current={isActive ? 'true' : undefined}
             >
               <img className="thumb" src={im.thumbUrl} alt="" draggable={false} loading="lazy" decoding="async" />

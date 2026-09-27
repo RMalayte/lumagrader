@@ -2,7 +2,7 @@ import { buildCurveLUT } from './curve'
 import { buildRgbCurveLUTs } from './curvePoints'
 import { isToneActive, isLocalToneActive, buildLocalLUT, buildGlobalLUT, sampleLUT, applyRatioLinear, luminance, srgbDecode, srgbEncode } from './tone'
 import { getLocalBaseMap, sampleLocalBase } from './localBase'
-import { applyGeometry, isGeometryDefault } from './geometry'
+import { prepareSource } from './sourcePrep'
 import { HSL_BANDS } from './hsl'
 import { wbMatrixFor, isGradeActive, gradeUniforms, applyGrade, grainAmplitude, grainCells, grainAt, vignetteParams, vignetteWeight, applyVignette, satVibFactor, scaleChroma, hueSat, withHue, hslBandWeights, neutralFade, lumaOf, HSL_HUE_DEG, HSL_LUM_EV } from './color'
 import { getProfileBias } from './colorProfiles'
@@ -37,7 +37,7 @@ export function renderImage(canvas, source, s, luts = {}) {
     c.getContext('2d').drawImage(source, 0, 0)
     source = c
   }
-  const src = s.geometry && !isGeometryDefault(s.geometry) ? applyGeometry(source, s.geometry) : source
+  const src = prepareSource(source, s)
   let webglError
   try {
     renderTonalWebGL(canvas, src, s, luts)
@@ -72,8 +72,7 @@ export function renderToCanvas(target, source, s, luts = {}, { allowCanvasFallba
     // next time, and render this one with the Canvas 2D engine directly into the target.
     scratchCanvas = null
     console.warn('Scratch WebGL render failed — using Canvas 2D for this render.', err)
-    const src = s.geometry && !isGeometryDefault(s.geometry) ? applyGeometry(source, s.geometry) : source
-    renderTonalCanvas2D(target, src, s, luts)
+    renderTonalCanvas2D(target, prepareSource(source, s), s, luts)
     return target
   }
   target.width = scratchCanvas.width

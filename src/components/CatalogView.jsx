@@ -1,9 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import { useFeedback } from '../store/FeedbackContext'
 import { ingestPhoto, newImageId } from '../hooks/useImportPhotos'
 import { releaseImages } from '../engine/imageStore'
-import { getAllProjects, deleteProjectFromDB } from '../hooks/useProjectStore'
+import { unpackExtras } from '../engine/photoExtras'
+import { getAllProjects, deleteProjectFromDB, savePresetToDB } from '../hooks/useProjectStore'
+import { defaultSettings, migrateSettings } from '../engine/defaults'
+import { defaultGeometry } from '../engine/geometry'
+import Icon from './Icon.jsx'
 
 export default function CatalogView() {
   const { state, dispatch } = useProject()
@@ -12,6 +16,8 @@ export default function CatalogView() {
   const [thumbUrls, setThumbUrls] = useState({})
   const [loading, setLoading] = useState(true)
   const [opening, setOpening] = useState(null)
+  const [busyFile, setBusyFile] = useState(null) // project id being saved to the device, or 'open'
+  const fileInputRef = useRef(null)
 
   async function refresh() {
     const rows = await getAllProjects().catch((err) => {
@@ -39,9 +45,10 @@ export default function CatalogView() {
     !state.isDirty ||
     confirm({ title: 'Discard unsaved changes?', message: 'Your current edits haven\'t been saved.', confirmLabel: 'Discard', danger: true })
 
-  async function openProject(project) {
+  // `fromFile`: opened from a .lumagrader file — not (yet) saved in this browser.
+  async function openProject(project, { fromFile = false } = {}) {
     if (opening || !(await confirmDiscard())) return
-    setOpening(project.id)
+    setOpening(project.id || 'file')
     try {
       // One photo at a time (not Promise.all): decoding a whole project in parallel could
       // hold dozens of full-size images in memory at once and crash a phone tab.
@@ -58,12 +65,15 @@ export default function CatalogView() {
           rating: imData.rating || 0,
           isRawPreview: !!imData.isRawPreview,
           settings: imData.settings,
+          albumIds: Array.isArray(imData.albumIds) ? imData.albumIds : [],
+          ...(await unpackExtras(imData)),
           history: { past: [], future: [] },
         })
         dispatch({ type: 'SET_IMPORT_PROGRESS', progress: { done: images.length, total: project.images.length } })
       }
       releaseImages(state.images, { revokeUrls: true })
-      dispatch({ type: 'LOAD_PROJECT', images, projectId: project.id, projectName: project.name })
+      dispatch({ type: 'LOAD_PROJECT', images, albums: project.albums, projectId: fromFile ? null : project.id, projectName: project.name })
+      if (fromFile) toast(`Opened "${project.name}"${project.missing ? ` — ${project.missing} photo(s) couldn't be read` : ''}. Press Save Project to keep it in this browser.`, { duration: 6000 })
     } catch (err) {
       dispatch({ type: 'SET_IMPORT_PROGRESS', progress: null })
       console.error('Opening project failed', err)
@@ -72,6 +82,57 @@ export default function CatalogView() {
       dispatch({ type: 'SET_IMPORT_PROGRESS', progress: null })
       setOpening(null)
     }
+  }
+
+  async function saveProjectFile(project) {
+    if (busyFile) return
+    setBusyFile(project.id)
+    try {
+      const { buildProjectFile, projectFileName, downloadBlob } = await import('../engine/projectFile')
+      const file = await buildProjectFile(project, __APP_VERSION__, state.customPresets)
+      downloadBlob(file, projectFileName(project.name))
+      toast(`Saved "${projectFileName(project.name)}" to your device`)
+    } catch (err) {
+      console.error('Save to device failed', err)
+      toast('Could not create the project file', { type: 'error' })
+    } finally {
+      setBusyFile(null)
+    }
+  }
+
+  async function openProjectFile(file) {
+    if (!file || busyFile) return
+    setBusyFile('open')
+    let project
+    try {
+      const { readProjectFile } = await import('../engine/projectFile')
+      project = await readProjectFile(file)
+    } catch (err) {
+      console.warn('Reading project file failed', err)
+      toast(err?.message || 'Could not open this file', { type: 'error', duration: 6000 })
+      return
+    } finally {
+      setBusyFile(null)
+    }
+    await addMissingPresets(project.presets)
+    await openProject(project, { fromFile: true })
+  }
+
+  // Presets saved in the file that this browser doesn't have yet (same name = keep ours).
+  async function addMissingPresets(presets = {}) {
+    const added = {}
+    for (const [name, raw] of Object.entries(presets)) {
+      if (state.customPresets[name]) continue
+      // Same clean-up as an imported preset file: no crop, masks or spots in a preset.
+      const settings = { ...defaultSettings(), ...migrateSettings(raw), geometry: defaultGeometry(), masks: [], spots: [] }
+      try {
+        await savePresetToDB(name, settings)
+        added[name] = settings
+      } catch (err) {
+        console.warn('Could not add preset from project file', name, err)
+      }
+    }
+    if (Object.keys(added).length) dispatch({ type: 'LOAD_CUSTOM_PRESETS', presets: added })
   }
 
   async function removeProject(project) {
@@ -91,6 +152,23 @@ export default function CatalogView() {
     <div className="catalog">
       <div className="catalog-header">
         <h2>Your Projects</h2>
+        <div className="catalog-actions">
+        <input
+          ref={fileInputRef}
+          type="file"
+          hidden
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; openProjectFile(f) }}
+        />
+        <button
+          type="button"
+          className="action secondary"
+          style={{ flex: 'none', padding: '8px 14px' }}
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!!opening || busyFile === 'open'}
+          title="Open a .lumagrader project file from this device"
+        >
+          <Icon name="openFile" size={15} /> {busyFile === 'open' || opening === 'file' ? 'Opening…' : 'Open file'}
+        </button>
         <button
           className="action primary"
           style={{ flex: 'none', padding: '8px 16px' }}
@@ -102,13 +180,14 @@ export default function CatalogView() {
         >
           + New
         </button>
+        </div>
       </div>
       {loading ? (
         <div className="empty">Loading…</div>
       ) : projects.length === 0 ? (
         <div className="empty-state compact">
           <h2>No saved projects yet</h2>
-          <p>Edit some photos, then press Save Project (Ctrl/⌘+S).</p>
+          <p>Edit some photos, then press Save Project (Ctrl/⌘+S). Have a .lumagrader file? Use Open file.</p>
         </div>
       ) : (
         <div className="catalog-grid">
@@ -122,6 +201,16 @@ export default function CatalogView() {
                     {p.images.length} photo{p.images.length === 1 ? '' : 's'} · {new Date(p.updatedAt).toLocaleDateString()}
                   </span>
                 </div>
+              </button>
+              <button
+                type="button"
+                className="catalog-device"
+                onClick={() => saveProjectFile(p)}
+                disabled={!!busyFile}
+                aria-label={`Save project ${p.name} to device`}
+                title="Save to device (.lumagrader file)"
+              >
+                {busyFile === p.id ? '…' : <Icon name="toDevice" size={13} />}
               </button>
               <button type="button" className="catalog-delete" onClick={() => removeProject(p)} aria-label={`Delete project ${p.name}`} title="Delete project">×</button>
             </div>

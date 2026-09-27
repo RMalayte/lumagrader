@@ -3,7 +3,7 @@ import { useProject } from '../store/ProjectContext'
 import { usePreview } from '../hooks/useImageSources'
 import { PRESETS, defaultSettings, defaultHsl, migrateSettings } from '../engine/defaults'
 import { defaultGeometry } from '../engine/geometry'
-import { getAllPresets, savePresetToDB, deletePresetFromDB } from '../hooks/useProjectStore'
+import { savePresetToDB, deletePresetFromDB } from '../hooks/useProjectStore'
 import { renderToCanvas } from '../engine/pipeline'
 import { useFeedback } from '../store/FeedbackContext'
 import Accordion from './Accordion.jsx'
@@ -25,16 +25,6 @@ export default function PresetChips() {
   const active = state.images.find((im) => im.id === state.activeId)
   const [proxy, setProxy] = useState(null)
   const preview = usePreview(active)
-
-  useEffect(() => {
-    getAllPresets()
-      .then((rows) => {
-        const map = Object.fromEntries(rows.map((r) => [r.name, r.settings]))
-        dispatch({ type: 'LOAD_CUSTOM_PRESETS', presets: map })
-      })
-      .catch(() => {})
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // Thumbnails depend only on the photo's pixels, not on its current edits.
   useEffect(() => {
@@ -70,17 +60,23 @@ export default function PresetChips() {
       curvePointsB: active.settings.curvePointsB,
       geometry: active.settings.geometry,
       masks: active.settings.masks,
+      spots: active.settings.spots || [],
+      lensDistortion: active.settings.lensDistortion || 0,
+      lensVignette: active.settings.lensVignette || 0,
+      lensVignetteMidpoint: active.settings.lensVignetteMidpoint ?? 50,
+      removeCA: !!active.settings.removeCA,
     })
   }
   function applyCustom(name) {
     const preset = JSON.parse(JSON.stringify(state.customPresets[name]))
     preset.geometry = active.settings.geometry
     preset.masks = active.settings.masks
+    preset.spots = active.settings.spots || []
     announceApplied(name)
     commitSettings(active.id, preset)
   }
   async function saveCurrent() {
-    const name = await prompt({ title: 'Save preset', message: 'Saves this photo\'s look (no crop or masks).', placeholder: 'e.g. Sunset Ride', confirmLabel: 'Save' })
+    const name = await prompt({ title: 'Save preset', message: 'Saves this photo\'s look (no crop, masks or spot removal).', placeholder: 'e.g. Sunset Ride', confirmLabel: 'Save' })
     if (!name) return
     if (state.customPresets[name] || PRESETS[name]) {
       const ok = await confirm({ title: `Replace "${name}"?`, message: 'A preset with this name already exists.', confirmLabel: 'Replace', danger: true })
@@ -89,6 +85,7 @@ export default function PresetChips() {
     const settings = JSON.parse(JSON.stringify(active.settings))
     settings.geometry = defaultGeometry() // presets are portable across photos — never save a crop into one
     settings.masks = [] // ...or local masks tied to this specific photo's composition
+    settings.spots = [] // ...or spot removal
     try {
       await savePresetToDB(name, settings)
       dispatch({ type: 'ADD_CUSTOM_PRESET', name, settings })
@@ -153,7 +150,7 @@ export default function PresetChips() {
           // Only accept entries that look like settings objects — the file is user-provided.
           for (const [name, settings] of Object.entries(parsed)) {
             if (typeof name !== 'string' || name.length > 80 || !settings || typeof settings !== 'object' || Array.isArray(settings)) continue
-            merged[uniqueName(name)] = { ...defaultSettings(), ...migrateSettings(settings), geometry: defaultGeometry(), masks: [] }
+            merged[uniqueName(name)] = { ...defaultSettings(), ...migrateSettings(settings), geometry: defaultGeometry(), masks: [], spots: [] }
           }
         }
       } catch (err) {

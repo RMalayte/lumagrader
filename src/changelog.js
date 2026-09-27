@@ -1,6 +1,25 @@
-// User-facing release notes — newest first, shown in About.
+// User-facing release notes — newest first. All are listed in About; the "What's new" popup
+// after an update only shows versions from POPUP_FROM on.
 // Keep items short and written for photographers, not developers.
+export const POPUP_FROM = '0.9.4'
+
 export const CHANGELOG = [
+  {
+    version: '0.9.4',
+    date: '2026-09-27',
+    title: 'Healing, Masks, Albums & more',
+    items: [
+      'Heal & Clone: tap a dust spot or blemish to remove it; drag to adjust.',
+      'New Luminance and Color range masks; any mask can be refined by brightness or colour. Brush masks are now saved with your project.',
+      'Lens corrections: Distortion, Vignetting and Remove Chromatic Aberration.',
+      'Snapshots: save named versions of a photo\'s edit and switch between them anytime.',
+      'Albums: group a project\'s photos (e.g. Day 1, Best shots) — saved with the project.',
+      'Save a project to your device as one .lumagrader file (original photos + all edits) and open it again from Projects → Open file.',
+      'Saved presets are kept more safely and travel with your .lumagrader project files.',
+      'New user guide — open it from About.',
+      'Fixed: very large photos opened blank on some phones. They now load faster and use much less memory.',
+    ],
+  },
   {
     version: '0.9.3',
     date: '2026-09-27',
@@ -31,7 +50,7 @@ export const CHANGELOG = [
       'Clarity and Texture now work on brightness only (no colour shifts); Clarity focuses on the midtones without halos, Texture on fine detail (skin, foliage) and leaves strong edges alone.',
       'Dehaze now estimates the haze in each area of the photo; negative Dehaze adds a soft haze.',
       'Presence effects look the same in the preview and in the full-size export.',
-      'Vignette: new Midpoint, Roundness, Feather and Highlights sliders (like Lightroom\'s post-crop vignette).',
+      'Vignette: new Midpoint, Roundness, Feather and Highlights sliders (applied after crop).',
       'Grain: new Size and Roughness sliders.',
       'This "What\'s new" popup, and an About page with the version and full history.',
     ],
@@ -39,9 +58,9 @@ export const CHANGELOG = [
   {
     version: '0.8.1',
     date: '2026-09-27',
-    title: 'Color Grading calibrated to Lightroom',
+    title: 'Color Grading fine-tuned',
     items: [
-      'Color Grading strength, tonal ranges and wheel hues now match Lightroom (e.g. 200° is teal).',
+      'Color Grading strength, tonal ranges and wheel hues fine-tuned (e.g. 200° is teal).',
       'Softer, film-like Grain that looks the same in the preview and the export.',
       'A notice appears if a RAW could only be opened as the camera preview.',
     ],
@@ -52,7 +71,7 @@ export const CHANGELOG = [
     title: 'Color Grading',
     items: [
       'Shadows / Midtones / Highlights / Global colour wheels with Luminance, Blending and Balance.',
-      'Lightroom presets with Color Grading or Split Toning import fully.',
+      '.xmp presets with Color Grading or Split Toning import fully.',
     ],
   },
   {
@@ -60,9 +79,9 @@ export const CHANGELOG = [
     date: '2026-09-27',
     title: 'White balance in Kelvin',
     items: [
-      'RAW photos: Temp in Kelvin and Tint, starting from the camera\'s As Shot values (on Lightroom\'s scale).',
+      'RAW photos: Temp in Kelvin and Tint, starting from the camera\'s As Shot values.',
       'The histogram updates live while you drag a slider.',
-      'New "Luma Color" base look for RAW photos, closer to Lightroom\'s default colour.',
+      'New "Luma Color" base look for RAW photos, with richer, more natural colour.',
       'Profiles renamed: Luma Color, Luma Standard, Luma Vivid, …',
     ],
   },
@@ -71,8 +90,8 @@ export const CHANGELOG = [
     date: '2026-09-27',
     title: 'New colour engine',
     items: [
-      'Real white balance, Lightroom-like Vibrance, Saturation and HSL.',
-      'Texture, Clarity and Dehaze go negative; Vignette uses Lightroom\'s direction.',
+      'Real white balance, plus new Vibrance, Saturation and HSL.',
+      'Texture, Clarity and Dehaze go negative; negative Vignette now darkens the corners.',
     ],
   },
   {
@@ -93,3 +112,12 @@ export const CHANGELOG = [
   },
 ]
 
+/** Compares dotted versions: negative if a < b. */
+export function compareVersions(a, b) {
+  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d) return d
+  }
+  return 0
+}

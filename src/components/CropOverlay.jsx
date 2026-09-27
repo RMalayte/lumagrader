@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import { usePreview } from '../hooks/useImageSources'
 import { applyGeometry, defaultGeometry } from '../engine/geometry'
+import { correctedSource } from '../engine/sourcePrep'
 
 const ASPECTS = [
   { label: 'Free', value: null },
@@ -24,12 +25,14 @@ export default function CropOverlay({ active, onDone }) {
 
   useEffect(() => {
     if (!preview) return
-    const base = applyGeometry(preview, { rotate90: geometry.rotate90, angle: geometry.angle, crop: { x: 0, y: 0, w: 1, h: 1 } })
+    // Lens corrections + spot removal already applied, so the crop is judged on the real result.
+    const base = applyGeometry(correctedSource(preview, active.settings), { rotate90: geometry.rotate90, angle: geometry.angle, crop: { x: 0, y: 0, w: 1, h: 1 } })
     baseRef.current = base
     const c = canvasRef.current
     c.width = base.width
     c.height = base.height
     c.getContext('2d').drawImage(base, 0, 0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preview, geometry.rotate90, geometry.angle])
 
   function updateCrop(next) {

@@ -39,7 +39,7 @@ function useDismiss(open, setOpen, ref) {
 // Photo-level commands (Reset, Copy, Remove, Export) in the top header, reachable in every
 // view. Copy/Remove/Reset act on the multi-selection when there is one, otherwise on the
 // active photo. Destructive actions are instant but undoable from the toast.
-export default function EditActionsBar({ onAbout }) {
+export default function EditActionsBar({ onAbout, onSaveToDevice }) {
   const { state, dispatch, commitSettings, undo } = useProject()
   const { toast } = useFeedback()
   const [modalMode, setModalMode] = useState(null) // null | 'single' | 'selected' | 'all'
@@ -146,6 +146,11 @@ export default function EditActionsBar({ onAbout }) {
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); copySettings() }}>
               <Icon name="copy" size={14} /> {hasSelection ? `Copy to selected (${selectedCount})` : 'Copy edits to all'}
             </button>
+            {onSaveToDevice && (
+              <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onSaveToDevice() }}>
+                <Icon name="toDevice" size={14} /> Save project to device
+              </button>
+            )}
             {kofiUrl() && (
               <a role="menuitem" className="menu-link" href={kofiUrl()} target="_blank" rel="noopener noreferrer" onClick={() => setMoreOpen(false)}>
                 <Icon name="coffee" size={14} /> Support on Ko-fi

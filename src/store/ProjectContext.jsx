@@ -8,7 +8,9 @@ const initialState = {
   //   history: { past, future }, bypass? } — decoded pixels live in engine/imageStore.js caches
   images: [],
   activeId: null,
-  selectedIds: [],    // multi-select in the filmstrip, for "copy to selected" / preset-apply-to-selected
+  selectedIds: [],
+  albums: [],         // [{ id, name }] — photos list the albums they're in (image.albumIds)
+  activeAlbumId: null, // album shown in the filmstrip; null = all photos    // multi-select in the filmstrip, for "copy to selected" / preset-apply-to-selected
   luts: {},
   customPresets: {},
   currentBand: 'red',
@@ -19,7 +21,11 @@ const initialState = {
   eyedropperActive: false, // HSL "pick a color from the photo" mode
   selectedMaskId: null,
   maskDrawMode: null, // null | 'linear' | 'radial'
+  maskOverlay: false, // tint the selected mask red on the preview
+  maskPickColor: false, // next click on the photo picks the color range's colour
   brushSettings: { size: 20, hardness: 60, opacity: 100, erase: false },
+  selectedSpotId: null, // spot removal: the spot being edited
+  spotSettings: { size: 20, feather: 50, opacity: 100, mode: 'heal' }, // for new spots
   openAccordionId: null, // shared across sidebar accordions — opening one closes the rest
   clipping: { shadows: false, highlights: false }, // on-photo clipping warnings (J key / histogram triangles)
   importProgress: null, // { done, total } while photos are being imported
@@ -37,14 +43,62 @@ const NON_DIRTY_ACTIONS = new Set([
   'LOAD_PROJECT', 'SET_CURRENT_PROJECT', 'NEW_PROJECT',
   'TOGGLE_SELECT', 'SET_SELECTION', 'CLEAR_SELECTION', 'SET_EYEDROPPER',
   'SET_SELECTED_MASK', 'SET_MASK_DRAW_MODE', 'SET_BRUSH_SETTING', 'SET_OPEN_ACCORDION',
+  'SET_SELECTED_SPOT', 'SET_SPOT_SETTING', 'SET_MASK_OVERLAY', 'SET_MASK_PICK_COLOR',
   'SET_CLIPPING', 'SET_IMPORT_PROGRESS', 'SET_INFO_VISIBLE',
   'TOGGLE_PANEL_BYPASS', // bypass is a temporary view toggle, not saved work
+  'SET_ACTIVE_ALBUM',
 ])
+
+/** Photos shown in the filmstrip: the open album's, or all of them. */
+export function visibleImages(state) {
+  if (!state.activeAlbumId) return state.images
+  return state.images.filter((im) => im.albumIds?.includes(state.activeAlbumId))
+}
+
+const withAlbum = (im, albumId, on) => {
+  const ids = im.albumIds || []
+  if (on) return ids.includes(albumId) ? im : { ...im, albumIds: [...ids, albumId] }
+  return ids.includes(albumId) ? { ...im, albumIds: ids.filter((a) => a !== albumId) } : im
+}
 
 function rawReducer(state, action) {
   switch (action.type) {
-    case 'ADD_IMAGES':
-      return { ...state, images: [...state.images, ...action.images] }
+    case 'ADD_IMAGES': {
+      // Photos imported while an album is open go into that album (else they'd vanish from view).
+      const added = state.activeAlbumId ? action.images.map((im) => withAlbum(im, state.activeAlbumId, true)) : action.images
+      return { ...state, images: [...state.images, ...added] }
+    }
+
+    case 'ADD_ALBUM':
+      return {
+        ...state,
+        albums: [...state.albums, action.album],
+        images: action.ids?.length ? state.images.map((im) => (action.ids.includes(im.id) ? withAlbum(im, action.album.id, true) : im)) : state.images,
+      }
+
+    case 'RENAME_ALBUM':
+      return { ...state, albums: state.albums.map((a) => (a.id === action.id ? { ...a, name: action.name } : a)) }
+
+    case 'DELETE_ALBUM':
+      return {
+        ...state,
+        albums: state.albums.filter((a) => a.id !== action.id),
+        images: state.images.map((im) => withAlbum(im, action.id, false)),
+        activeAlbumId: state.activeAlbumId === action.id ? null : state.activeAlbumId,
+      }
+
+    case 'SET_ALBUM_MEMBERSHIP': {
+      const images = state.images.map((im) => (action.ids.includes(im.id) ? withAlbum(im, action.albumId, action.add) : im))
+      if (images.every((im, i) => im === state.images[i])) return state
+      return { ...state, images }
+    }
+
+    case 'SET_ACTIVE_ALBUM': {
+      const next = { ...state, activeAlbumId: action.id, selectedIds: [] }
+      const shown = visibleImages(next)
+      if (shown.length && !shown.some((im) => im.id === state.activeId)) next.activeId = shown[0].id
+      return next
+    }
 
     case 'REMOVE_IMAGES': {
       const remaining = state.images.filter((im) => !action.ids.includes(im.id))
@@ -79,6 +133,27 @@ function rawReducer(state, action) {
     case 'SET_INFO_VISIBLE':
       return { ...state, infoVisible: action.visible }
 
+    // Snapshots: named versions of a photo's settings, kept on the image record.
+    case 'ADD_SNAPSHOT':
+      return {
+        ...state,
+        images: state.images.map((im) => (im.id === action.id ? { ...im, snapshots: [...(im.snapshots || []), action.snapshot] } : im)),
+      }
+
+    case 'UPDATE_SNAPSHOT':
+      return {
+        ...state,
+        images: state.images.map((im) =>
+          im.id === action.id ? { ...im, snapshots: (im.snapshots || []).map((sn) => (sn.id === action.snapshotId ? { ...sn, ...action.patch } : sn)) } : im,
+        ),
+      }
+
+    case 'DELETE_SNAPSHOT':
+      return {
+        ...state,
+        images: state.images.map((im) => (im.id === action.id ? { ...im, snapshots: (im.snapshots || []).filter((sn) => sn.id !== action.snapshotId) } : im)),
+      }
+
     case 'SET_RATING':
       return { ...state, images: state.images.map((im) => (im.id === action.id ? { ...im, rating: action.rating } : im)) }
 
@@ -103,13 +178,25 @@ function rawReducer(state, action) {
       return { ...state, eyedropperActive: action.active }
 
     case 'SET_SELECTED_MASK':
-      return { ...state, selectedMaskId: action.id }
+      return { ...state, selectedMaskId: action.id, maskPickColor: false }
 
     case 'SET_MASK_DRAW_MODE':
       return { ...state, maskDrawMode: action.mode }
 
     case 'SET_BRUSH_SETTING':
       return { ...state, brushSettings: { ...state.brushSettings, ...action.patch } }
+
+    case 'SET_MASK_OVERLAY':
+      return { ...state, maskOverlay: action.on }
+
+    case 'SET_MASK_PICK_COLOR':
+      return { ...state, maskPickColor: action.on }
+
+    case 'SET_SELECTED_SPOT':
+      return { ...state, selectedSpotId: action.id }
+
+    case 'SET_SPOT_SETTING':
+      return { ...state, spotSettings: { ...state.spotSettings, ...action.patch } }
 
     case 'SET_OPEN_ACCORDION':
       return {
@@ -119,6 +206,8 @@ function rawReducer(state, action) {
         // made them linger distractingly while working on unrelated tools.
         selectedMaskId: action.id === 'masks' ? state.selectedMaskId : null,
         maskDrawMode: action.id === 'masks' ? state.maskDrawMode : null,
+        maskPickColor: action.id === 'masks' ? state.maskPickColor : false,
+        selectedSpotId: action.id === 'healing' ? state.selectedSpotId : null,
       }
 
     // Live preview update while dragging — does NOT touch history.
@@ -162,6 +251,7 @@ function rawReducer(state, action) {
           const cloned = JSON.parse(JSON.stringify(action.settings))
           cloned.geometry = im.settings.geometry // crop/rotation is per-photo — never overwritten by copy
           cloned.masks = im.settings.masks // local masks are per-photo too
+          cloned.spots = im.settings.spots || [] // and so is spot removal
           return { ...im, settings: cloned, history: { past: [...im.history.past, im.settings].slice(-HISTORY_CAP), future: [] } }
         }),
       }
@@ -227,6 +317,8 @@ function rawReducer(state, action) {
         selectedIds: [],
         currentProjectId: action.projectId,
         currentProjectName: action.projectName,
+        albums: Array.isArray(action.albums) ? action.albums : [],
+        activeAlbumId: null,
         viewMode: 'filmstrip',
         isDirty: false,
       }
@@ -235,7 +327,7 @@ function rawReducer(state, action) {
       return { ...state, currentProjectId: action.id, currentProjectName: action.name, isDirty: false }
 
     case 'NEW_PROJECT':
-      return { ...state, images: [], activeId: null, selectedIds: [], currentProjectId: null, currentProjectName: null, viewMode: 'filmstrip', isDirty: false }
+      return { ...state, images: [], activeId: null, selectedIds: [], albums: [], activeAlbumId: null, currentProjectId: null, currentProjectName: null, viewMode: 'filmstrip', isDirty: false }
 
     default:
       return state

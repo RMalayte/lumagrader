@@ -3,6 +3,7 @@ import { useProject } from '../store/ProjectContext'
 import { useFeedback } from '../store/FeedbackContext'
 import { ingestPhoto } from './useImportPhotos'
 import { writeSession, readSession, readSessionFile, clearSession } from './useProjectStore'
+import { packExtras, unpackExtras } from '../engine/photoExtras'
 
 const AUTOSAVE_DELAY = 1500 // ms after the last change
 
@@ -70,12 +71,14 @@ export function useSessionRecovery() {
           rating: im.rating || 0,
           isRawPreview: !!im.isRawPreview,
           settings: im.settings,
+          albumIds: Array.isArray(im.albumIds) ? im.albumIds : [],
+          ...(await unpackExtras(im)),
           history: { past: [], future: [] },
         })
         dispatch({ type: 'SET_IMPORT_PROGRESS', progress: { done: images.length, total: record.images.length } })
       }
       if (!images.length) throw new Error('No photo files in the recovery data')
-      dispatch({ type: 'LOAD_PROJECT', images, projectId: record.projectId || null, projectName: record.projectName || null })
+      dispatch({ type: 'LOAD_PROJECT', images, albums: record.albums, projectId: record.projectId || null, projectName: record.projectName || null })
       if (record.activeId && images.some((im) => im.id === record.activeId)) dispatch({ type: 'SET_ACTIVE', id: record.activeId })
       dispatch({ type: 'MARK_DIRTY' })
       toast(`Restored ${images.length} photo${images.length === 1 ? '' : 's'} — save the project to keep them`)
@@ -103,7 +106,11 @@ export function useSessionRecovery() {
         projectId: s.currentProjectId,
         projectName: s.currentProjectName,
         activeId: s.activeId,
-        images: s.images.map((im) => ({ id: im.id, name: im.name, rating: im.rating || 0, isRawPreview: !!im.isRawPreview, settings: im.settings })),
+        albums: s.albums,
+        images: [],
+      }
+      for (const im of s.images) {
+        record.images.push({ id: im.id, name: im.name, rating: im.rating || 0, isRawPreview: !!im.isRawPreview, settings: im.settings, albumIds: im.albumIds || [], ...(await packExtras(im)) })
       }
       const files = s.images.map((im) => ({ id: im.id, name: im.name, blob: im.originalBlob }))
       hasMirrorRef.current = true

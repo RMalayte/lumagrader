@@ -2,6 +2,7 @@ import { createProgram, ensureRenderTarget } from './glCore'
 import { VERT_SRC, FRAG_SRC, BLUR_FRAG_SRC, COMBINE_FRAG_SRC, MASK_FRAG_SRC, DETAIL_FRAG_SRC } from './shaders'
 import { buildRgbCurveLUTs } from '../curvePoints'
 import { getBrushCanvas } from '../brushMaskStore'
+import { rangeUniforms } from '../masks'
 import { getProfileBias } from '../colorProfiles'
 import { wbMatrixFor, isGradeActive, gradeUniforms, grainAmplitude, grainCells, vignetteParams } from '../color'
 import { buildLocalLUT, buildGlobalLUT, isToneActive, isLocalToneActive, LOCAL_LUT_SIZE, GLOBAL_LUT_SIZE } from '../tone'
@@ -162,6 +163,10 @@ function getState(canvas) {
     u_saturation: gl.getUniformLocation(maskProgram, 'u_saturation'),
     u_temp: gl.getUniformLocation(maskProgram, 'u_temp'),
     u_resolution: gl.getUniformLocation(maskProgram, 'u_resolution'),
+    u_rangeType: gl.getUniformLocation(maskProgram, 'u_rangeType'),
+    u_rangeParams: gl.getUniformLocation(maskProgram, 'u_rangeParams'),
+    u_rangeColor: gl.getUniformLocation(maskProgram, 'u_rangeColor'),
+    u_showOverlay: gl.getUniformLocation(maskProgram, 'u_showOverlay'),
   }
 
   state = {
@@ -424,7 +429,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     gl.bindTexture(gl.TEXTURE_2D, srcTex)
     gl.uniform1i(state.maskUniforms.u_image, 0)
 
-    const typeIndex = { linear: 0, radial: 1, brush: 2 }[mask.type] ?? 0
+    const typeIndex = { linear: 0, radial: 1, brush: 2, luminance: 3, color: 3 }[mask.type] ?? 0
     gl.uniform1i(state.maskUniforms.u_maskType, typeIndex)
     if (mask.type === 'linear') {
       gl.uniform4f(state.maskUniforms.u_linear, mask.linear.x1, mask.linear.y1, mask.linear.x2, mask.linear.y2)
@@ -457,6 +462,11 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     gl.uniform1f(state.maskUniforms.u_saturation, (adj.saturation || 0) / 100)
     gl.uniform1f(state.maskUniforms.u_temp, (adj.temp || 0) / 100)
     gl.uniform2f(state.maskUniforms.u_resolution, w, h)
+    const range = rangeUniforms(mask.range)
+    gl.uniform1i(state.maskUniforms.u_rangeType, range.type)
+    gl.uniform4f(state.maskUniforms.u_rangeParams, ...range.params)
+    gl.uniform3f(state.maskUniforms.u_rangeColor, ...range.color)
+    gl.uniform1i(state.maskUniforms.u_showOverlay, s._maskOverlayId === mask.id ? 1 : 0)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
   }
 

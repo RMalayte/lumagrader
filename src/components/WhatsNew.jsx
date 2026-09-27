@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { CHANGELOG, compareVersions } from '../changelog'
+import { CHANGELOG, POPUP_FROM, compareVersions } from '../changelog'
+import { APP_VERSION, ReleaseNotes } from './ReleaseNotes.jsx'
 
 const SEEN_KEY = 'lumagrader.seenVersion'
-export const APP_VERSION = __APP_VERSION__
-export const BUILD_DATE = __BUILD_DATE__
+const MAX_ENTRIES = 5
 
 function readSeen() {
   try { return window.localStorage.getItem(SEEN_KEY) } catch { return null }
@@ -12,32 +12,22 @@ function markSeen() {
   try { window.localStorage.setItem(SEEN_KEY, APP_VERSION) } catch { /* private mode */ }
 }
 
-export function ReleaseNotes({ entries }) {
-  return entries.map((e) => (
-    <section key={e.version} className="release">
-      <h4 className="release-head">
-        <span className="release-version">v{e.version}</span> {e.title}
-        <span className="release-date">{e.date}</span>
-      </h4>
-      <ul>
-        {e.items.map((it) => <li key={it}>{it}</li>)}
-      </ul>
-    </section>
-  ))
+/** Release notes this browser hasn't seen yet — only versions from POPUP_FROM up to the app's. */
+function unseenEntries() {
+  const seen = readSeen()
+  if (seen && compareVersions(seen, APP_VERSION) >= 0) return null
+  const list = CHANGELOG.filter((e) =>
+    compareVersions(e.version, POPUP_FROM) >= 0 &&
+    compareVersions(e.version, APP_VERSION) <= 0 &&
+    (!seen || compareVersions(e.version, seen) > 0))
+  // First visit: just the current release, not a backlog.
+  const shown = seen ? list.slice(0, MAX_ENTRIES) : list.slice(0, 1)
+  return shown.length ? shown : null
 }
 
-/**
- * Shows once after the app was updated: the notes of every version newer than the one this
- * browser last saw (first visit: just the current version). Dismissed = remembered.
- */
+/** Shows once after the app was updated. Dismissed = remembered. */
 export default function WhatsNew() {
-  const [entries, setEntries] = useState(() => {
-    const seen = readSeen()
-    if (seen && compareVersions(seen, APP_VERSION) >= 0) return null
-    const newer = CHANGELOG.filter((e) => compareVersions(e.version, APP_VERSION) <= 0 && (!seen || compareVersions(e.version, seen) > 0))
-    const list = seen ? newer.slice(0, 5) : newer.slice(0, 1)
-    return list.length ? list : null
-  })
+  const [entries, setEntries] = useState(unseenEntries)
   const closeRef = useRef(null)
   const close = () => { markSeen(); setEntries(null) }
 
