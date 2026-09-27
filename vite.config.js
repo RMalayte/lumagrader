@@ -4,8 +4,8 @@ import { readFileSync } from 'node:fs'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
 
-// Relative base so the build works on GitHub Pages project sites
-// (username.github.io/repo-name/) without hardcoding the repo name.
+// Relative base: the same build works at the site root (lumagrader.app), on Cloudflare Pages
+// preview addresses and in any subfolder, without hardcoding a path.
 export default defineConfig({
   plugins: [react()],
   base: './',

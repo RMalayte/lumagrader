@@ -13,7 +13,10 @@ import { shouldIgnoreShortcut, isMod } from '../engine/keyboard'
 import { rgbToHsl, HSL_BANDS, BAND_HUE } from '../engine/hsl'
 import { useImportPhotos, FILE_ACCEPT } from '../hooks/useImportPhotos'
 import { usePreview, useFullImage, useInteracting } from '../hooks/useImageSources'
-import { getDragProxy, previewSizeFor } from '../engine/imageStore'
+import { getDragProxy, previewSizeFor, peekPreview } from '../engine/imageStore'
+import { sampleNeutral } from '../engine/wbPicker'
+import { solveWhiteBalance } from '../engine/color'
+import { getProfileBias } from '../engine/colorProfiles'
 import CompareSlider from './CompareSlider.jsx'
 import CropOverlay from './CropOverlay.jsx'
 import MaskCanvasOverlay from './MaskCanvasOverlay.jsx'
@@ -23,6 +26,10 @@ import Icon from './Icon.jsx'
 
 const MIN_ZOOM = 0.25
 const FIT_MAX_ZOOM = 4 // zoom is relative to "fit"; 1:1 may need more when the photo is large
+const RETURN_GRACE_MS = 8000 // a GPU context lost this soon after returning to the app is a background loss
+const FAILURE_WINDOW_MS = 120000 // two real GPU failures within this window → compatibility mode
+const RETRY_PROBATION_MS = 15000 // a failure this soon after a GPU retry → straight back to compatibility
+const MAX_AUTO_GPU_RETRIES = 3
 
 function ToolbarButton({ icon, label, onClick, active, disabled, title }) {
   return (
@@ -78,7 +85,7 @@ function EmptyState({ onFiles, onFolder, progress }) {
 }
 
 export default function CanvasPreview() {
-  const { state, dispatch, undo, redo } = useProject()
+  const { state, dispatch, undo, redo, commitPatch } = useProject()
   const { importFiles, importFolder, progress } = useImportPhotos()
   const canvasRef = useRef(null)
   // The preview canvas unmounts for Before/After and Crop; release its WebGL context then,
@@ -86,18 +93,44 @@ export default function CanvasPreview() {
   // If the GPU gives up (too large / out of graphics memory — mostly phones at 1:1 zoom), the
   // canvas is stuck with a dead WebGL context and stays blank. Recover by mounting a fresh
   // canvas and capping the resolution used for zoom from then on.
-  // Phones also drop WebGL contexts when the browser goes to the background; that is not a
-  // failure — the canvas is just replaced quietly when the page is visible again.
-  // Escalation for real failures: 1st → lighter preview (zoom capped at 2048 px), 2nd →
-  // compatibility mode (software rendering, never blank; masks need the GPU).
+  // Phones also drop WebGL contexts when the browser goes to the background — and on Android
+  // the "context lost" event often arrives a few seconds AFTER the page is visible again
+  // (screen unlock, coming back from another app). Neither is a failure: the canvas is just
+  // replaced quietly.
+  // Escalation for real failures (counted within FAILURE_WINDOW_MS of each other):
+  // 1st → lighter preview (zoom capped at 2048 px), 2nd → compatibility mode (software
+  // rendering, never blank; masks need the GPU). Compatibility mode retries the GPU by itself
+  // when the app comes back from the background, and has a "Try GPU again" button.
   const [gpuTrouble, setGpuTrouble] = useState(false)
   const [forceCanvas, setForceCanvas] = useState(false)
   const [canvasKey, setCanvasKey] = useState(0)
   const failuresRef = useRef(0)
+  const lastFailureAtRef = useRef(0)
+  const visibleSinceRef = useRef(-Infinity) // when the page last came back from the background
+  const graceUsedRef = useRef(false) // one quiet canvas swap per return, so a real failure can't loop
+  const hiddenAtRef = useRef(0)
+  const gpuRetryRef = useRef({ at: 0, auto: 0, announce: false }) // last GPU retry from compatibility mode
   const { toast } = useFeedback()
+
+  const retryGpu = useCallback((auto) => {
+    if (auto) {
+      if (gpuRetryRef.current.auto >= MAX_AUTO_GPU_RETRIES) return
+      gpuRetryRef.current.auto += 1
+    }
+    gpuRetryRef.current = { ...gpuRetryRef.current, at: performance.now(), announce: !auto }
+    failuresRef.current = 1 // a failure right after this goes straight back to compatibility mode
+    lastFailureAtRef.current = performance.now()
+    setPreviewMode('GPU (lighter preview)')
+    setForceCanvas(false)
+    setCanvasKey((k) => k + 1) // a canvas that had a 2D context can't get a GPU one
+  }, [])
+
   const recoverFromGpuFailure = useCallback((reason) => {
     console.warn('Preview render failed — recovering with a fresh canvas:', reason)
-    recordGpuError(reason, document.hidden ? 'lost in background' : `preview failure ${failuresRef.current + 1}`)
+    const now = performance.now()
+    const lateBackgroundLoss = !document.hidden && !graceUsedRef.current && now - visibleSinceRef.current < RETURN_GRACE_MS
+    const background = document.hidden || lateBackgroundLoss
+    recordGpuError(reason, background ? 'lost in background' : `preview failure ${failuresRef.current + 1}`)
     if (document.hidden) {
       // Lost while in the background (Android frees GPU memory): swap the canvas on return.
       const onVisible = () => {
@@ -108,6 +141,25 @@ export default function CanvasPreview() {
       document.addEventListener('visibilitychange', onVisible)
       return
     }
+    if (lateBackgroundLoss) {
+      // Lost just after coming back to the app: same thing, only reported late.
+      graceUsedRef.current = true
+      setCanvasKey((k) => k + 1)
+      return
+    }
+    // A GPU retry that fails right away: back to compatibility mode without another toast.
+    if (gpuRetryRef.current.at && now - gpuRetryRef.current.at < RETRY_PROBATION_MS) {
+      gpuRetryRef.current.at = 0
+      if (gpuRetryRef.current.announce) toast('The graphics chip is still failing — staying in compatibility mode.', { type: 'error' })
+      failuresRef.current = 2
+      setForceCanvas(true)
+      setPreviewMode('compatibility')
+      setCanvasKey((k) => k + 1)
+      return
+    }
+    // Failures far apart (e.g. one this morning, one now) don't add up.
+    if (now - lastFailureAtRef.current > FAILURE_WINDOW_MS) failuresRef.current = 0
+    lastFailureAtRef.current = now
     failuresRef.current += 1
     if (failuresRef.current === 1) {
       setGpuTrouble(true)
@@ -116,12 +168,30 @@ export default function CanvasPreview() {
     } else if (failuresRef.current === 2) {
       setForceCanvas(true)
       setPreviewMode('compatibility')
-      toast('Graphics unavailable — switched to compatibility mode. Editing works (a bit slower); masks are off until you reload.', { type: 'error', duration: 9000 })
+      toast('Graphics unavailable — switched to compatibility mode (slower). Tap "Try GPU again" on the photo to retry.', { type: 'error', duration: 9000 })
     } else if (failuresRef.current > 4) {
       return // give up remounting; compatibility mode should never get here
     }
     setCanvasKey((k) => k + 1)
   }, [toast])
+
+  // Visibility bookkeeping for the above, plus the automatic GPU retry: back from the
+  // background after a while in compatibility mode → try the GPU again (a few times per session).
+  useEffect(() => {
+    const onVis = () => {
+      const now = performance.now()
+      if (document.hidden) {
+        hiddenAtRef.current = now
+        return
+      }
+      visibleSinceRef.current = now
+      graceUsedRef.current = false
+      if (forceCanvas && hiddenAtRef.current && now - hiddenAtRef.current > 1500) retryGpu(true)
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
+  }, [forceCanvas, retryGpu])
+
   const setCanvasEl = useCallback((el) => {
     if (!el && canvasRef.current) releaseCanvas(canvasRef.current)
     canvasRef.current = el
@@ -205,6 +275,10 @@ export default function CanvasPreview() {
         recoverFromGpuFailure(err)
         return
       }
+      if (gpuRetryRef.current.announce && !forceCanvas) {
+        gpuRetryRef.current.announce = false
+        toast('Graphics back on — full speed again.')
+      }
       setCanvasSize((prev) => (prev.w === canvas.width && prev.h === canvas.height && prev.srcW === srcW ? prev : { w: canvas.width, h: canvas.height, srcW }))
       // Before view and the red mask overlay aren't the edit — don't feed them to the histogram.
       if (!holdBefore && !overlayId) publishPreview(canvas, { imageId: active.id, dragging: !!dragProxy })
@@ -212,7 +286,7 @@ export default function CanvasPreview() {
       if (clipCanvasRef.current && !dragProxy) drawClippingOverlay(canvas, clipCanvasRef.current, state.clipping)
     })
     return () => cancelAnimationFrame(raf)
-  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, forceCanvas, recoverFromGpuFailure, state.maskOverlay, state.selectedMaskId, state.openAccordionId])
+  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, forceCanvas, recoverFromGpuFailure, state.maskOverlay, state.selectedMaskId, state.openAccordionId, toast])
 
   // Track the stage's real size. A ResizeObserver (not window resize) is needed because the
   // stage also shrinks when the mobile tool sheet opens or the header wraps.
@@ -333,7 +407,7 @@ export default function CanvasPreview() {
   useEffect(() => () => clearTimeout(holdTimerRef.current), [])
 
   function onStagePointerDown(e) {
-    if (state.eyedropperActive) return // let the click-to-pick handler run instead
+    if (state.eyedropperActive || state.wbPickActive) return // let the click-to-pick handler run instead
     if (e.pointerType === 'mouse' && e.button !== 0) return
     const stage = stageRef.current
     if (!stage) return
@@ -424,6 +498,7 @@ export default function CanvasPreview() {
   // Samples the clicked pixel from the already-graded canvas and jumps the HSL panel to
   // whichever of the 8 bands that color's hue is closest to.
   function pickColor(e) {
+    if (state.wbPickActive) return pickWhiteBalance(e)
     if (!state.eyedropperActive || !canvasRef.current) return
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
@@ -452,6 +527,42 @@ export default function CanvasPreview() {
     }
     dispatch({ type: 'SET_CURRENT_BAND', band: nearest })
     dispatch({ type: 'SET_EYEDROPPER', active: false })
+  }
+
+  // White balance eyedropper: sample the photo as shot (no WB or colour edits) around the
+  // tapped point and set Temp/Tint so that colour becomes neutral.
+  function pickWhiteBalance(e) {
+    const canvas = canvasRef.current
+    const preview = peekPreview(active.id)
+    if (!canvas || !preview) return
+    const rect = canvas.getBoundingClientRect()
+    const relX = (e.clientX - rect.left) / rect.width
+    const relY = (e.clientY - rect.top) / rect.height
+    if (relX < 0 || relY < 0 || relX > 1 || relY > 1) return
+    let sample
+    try {
+      sample = sampleNeutral(preview, active.settings, relX, relY)
+    } catch (err) {
+      console.error('White balance pick failed', err)
+      toast('Could not read the photo there — try again', { type: 'error' })
+      return
+    }
+    if (sample.clipped || sample.tooDark) {
+      toast(sample.clipped ? 'That spot is too bright (blown out) — tap a grey or off-white area' : 'That spot is too dark — tap a lighter grey area', { type: 'error' })
+      return // keep the picker on for another try
+    }
+    const s = effectiveSettings(active)
+    const res = solveWhiteBalance(sample.rgb, s, getProfileBias(s.colorProfile).temp || 0)
+    if (s.asShotWB) {
+      commitPatch(active.id, { wb: res.wb })
+      const wb = res.wb || s.asShotWB
+      toast(`White balance: ${wb.kelvin} K, tint ${wb.tint > 0 ? '+' : ''}${wb.tint}${res.wb ? '' : ' (As Shot)'}`)
+    } else {
+      commitPatch(active.id, { temp: res.temp, tint: res.tint })
+      toast(`White balance: Temp ${res.temp > 0 ? '+' : ''}${res.temp}, Tint ${res.tint > 0 ? '+' : ''}${res.tint}`)
+    }
+    if (res.clipped) toast('That colour is too strong to make fully neutral — a grey or white area works best', { type: 'info', duration: 6000 })
+    dispatch({ type: 'SET_WB_PICK', active: false })
   }
 
   // ---- Drag & drop import (works on the empty state and on top of a photo) ---------------
@@ -532,7 +643,7 @@ export default function CanvasPreview() {
         </div>
       </div>
       <div className="stage-wrap">
-        <div className={'stage' + (state.eyedropperActive ? ' picking' : '')} ref={stageRef} onPointerDown={onStagePointerDown} onContextMenu={(e) => pointersRef.current.size > 0 && e.preventDefault()}>
+        <div className={'stage' + (state.eyedropperActive || state.wbPickActive ? ' picking' : '')} ref={stageRef} onPointerDown={onStagePointerDown} onContextMenu={(e) => pointersRef.current.size > 0 && e.preventDefault()}>
           <div
             className="stage-inner"
             style={compareOn ? { display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%' } : { padding: `${padding.y}px ${padding.x}px` }}
@@ -550,6 +661,12 @@ export default function CanvasPreview() {
           </div>
         </div>
         {holdBefore && <div className="hold-before-label" aria-live="polite">Before</div>}
+        {forceCanvas && !compareOn && (
+          <button type="button" className="compat-badge" onClick={() => retryGpu(false)} title="The preview is using the slower compatibility mode after a graphics problem. Tap to try the graphics chip (GPU) again.">
+            <span className="compat-badge-dot" aria-hidden="true" />
+            Compatibility mode · <strong>Try GPU again</strong>
+          </button>
+        )}
         {/* Mobile: the toolbar row is hidden — its view tools float over the photo instead. */}
         <div className="photo-fabs show-mobile" role="toolbar" aria-label="Photo view">
           <button type="button" className={'fab' + (compareOn ? ' active' : '')} onClick={() => setCompareOn((v) => !v)} aria-pressed={compareOn} aria-label="Before / After" title="Before / After (or touch & hold the photo)">
@@ -588,6 +705,7 @@ export default function CanvasPreview() {
         )}
       </div>
       {state.eyedropperActive && <div className="eyedropper-hint">Click anywhere on the photo to pick a color</div>}
+      {state.wbPickActive && <div className="eyedropper-hint">Tap something that should be neutral grey or white</div>}
       {progress && <div className="import-pill">Importing {progress.done}/{progress.total}…</div>}
       {dropOverlay}
     </div>

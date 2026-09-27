@@ -6,7 +6,7 @@ How the app is put together, for contributors. For how to *use* the app, see the
 ## Stack
 
 React 18 + Vite 5, plain JavaScript. Rendering is WebGL2 with an automatic Canvas 2D fallback.
-Storage is IndexedDB. There is no backend: the app is a static site on GitHub Pages and works
+Storage is IndexedDB. There is no backend: the app is a static site on Cloudflare Pages and works
 offline through a service worker (`public/sw.js`).
 
 ## Image pipeline
@@ -61,4 +61,5 @@ stores the original files, settings, ratings, albums, snapshots and brush-mask P
 2. Add an entry at the top of `CHANGELOG` in `src/changelog.js`, written for photographers.
    It appears in About and in the "What's new" popup (versions from `POPUP_FROM` on;
    `quiet: true` keeps a small fix out of the popup).
-3. `npm run lint && npm run build`, test on a phone, then push to `main`.
+3. `npm run lint && npm run build`, test on a phone (push a non-`main` branch for a Cloudflare
+   preview address), then push to `main` — Cloudflare Pages deploys it.

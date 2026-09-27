@@ -39,13 +39,18 @@ npm run preview   # serve the production build locally
 
 ## Deployment
 
-Pushing to `main` runs `.github/workflows/deploy.yml`, which lints, builds and publishes
-`dist/` to GitHub Pages. Other branches and pull requests are linted and built only.
+Hosted on **Cloudflare Pages**, connected to this GitHub repo, at **lumagrader.app**.
 
-One-time setup: **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-The site is served at the custom domain **lumagrader.app** (set under Settings → Pages →
-Custom domain; DNS at Cloudflare, "DNS only"). With an Actions deployment no `CNAME` file is
-needed.
+| Setting | Value |
+| --- | --- |
+| Production branch | `main` |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Node.js | 20 (from `.node-version`) |
+
+Pushing to `main` deploys the live site. Pushing any other branch gives a preview deploy at
+its own `*.pages.dev` address (HTTPS), handy for testing on a phone before merging.
+GitHub Actions (`.github/workflows/ci.yml`) only lints and builds; it doesn't publish anything.
 
 ## Project structure
 

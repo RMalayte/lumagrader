@@ -19,6 +19,9 @@ const initialState = {
   currentProjectName: null,
   isDirty: false,     // true once anything has changed since the last successful Save Project
   eyedropperActive: false, // HSL "pick a color from the photo" mode
+  wbPickActive: false, // White Balance eyedropper: next tap on the photo sets Temp/Tint
+  // Last preset applied, for its Amount slider: { name, ids, before: {id: settings}, full: {id: settings}, amount }
+  presetSession: null,
   selectedMaskId: null,
   maskDrawMode: null, // null | 'linear' | 'radial'
   maskOverlay: false, // tint the selected mask red on the preview
@@ -46,7 +49,7 @@ const NON_DIRTY_ACTIONS = new Set([
   'SET_SELECTED_SPOT', 'SET_SPOT_SETTING', 'SET_MASK_OVERLAY', 'SET_MASK_PICK_COLOR',
   'SET_CLIPPING', 'SET_IMPORT_PROGRESS', 'SET_INFO_VISIBLE',
   'TOGGLE_PANEL_BYPASS', // bypass is a temporary view toggle, not saved work
-  'SET_ACTIVE_ALBUM',
+  'SET_ACTIVE_ALBUM', 'SET_WB_PICK', 'SET_PRESET_SESSION', 'SET_PRESET_AMOUNT', 'REMEMBER_PRESET_AMOUNT',
 ])
 
 /** Photos shown in the filmstrip: the open album's, or all of them. */
@@ -175,7 +178,23 @@ function rawReducer(state, action) {
       return { ...state, selectedIds: [] }
 
     case 'SET_EYEDROPPER':
-      return { ...state, eyedropperActive: action.active }
+      return { ...state, eyedropperActive: action.active, wbPickActive: action.active ? false : state.wbPickActive }
+
+    case 'SET_WB_PICK':
+      return { ...state, wbPickActive: action.active, eyedropperActive: action.active ? false : state.eyedropperActive }
+
+    case 'SET_PRESET_SESSION':
+      return { ...state, presetSession: action.session }
+
+    case 'SET_PRESET_AMOUNT':
+      return state.presetSession ? { ...state, presetSession: { ...state.presetSession, amount: action.amount } } : state
+
+    // Remembers a committed Amount so Undo/Redo back to it keep the Amount slider.
+    case 'REMEMBER_PRESET_AMOUNT': {
+      const ps = state.presetSession
+      if (!ps) return state
+      return { ...state, presetSession: { ...ps, amounts: [...(ps.amounts || []).filter((a) => a !== ps.amount), ps.amount].slice(-30) } }
+    }
 
     case 'SET_SELECTED_MASK':
       return { ...state, selectedMaskId: action.id, maskPickColor: false }
@@ -208,6 +227,7 @@ function rawReducer(state, action) {
         maskDrawMode: action.id === 'masks' ? state.maskDrawMode : null,
         maskPickColor: action.id === 'masks' ? state.maskPickColor : false,
         selectedSpotId: action.id === 'healing' ? state.selectedSpotId : null,
+        wbPickActive: action.id === 'color' ? state.wbPickActive : false,
       }
 
     // Live preview update while dragging — does NOT touch history.
@@ -238,6 +258,17 @@ function rawReducer(state, action) {
         images: state.images.map((im) =>
           action.ids.includes(im.id)
             ? { ...im, settings: action.settings, history: { past: [...im.history.past, im.settings].slice(-HISTORY_CAP), future: [] } }
+            : im,
+        ),
+      }
+
+    // Like SET_SETTINGS_COMMIT_MULTI, but each photo gets its own settings ({ id: settings }).
+    case 'SET_SETTINGS_PER_IMAGE':
+      return {
+        ...state,
+        images: state.images.map((im) =>
+          action.byId[im.id]
+            ? { ...im, settings: action.byId[im.id], history: { past: [...im.history.past, im.settings].slice(-HISTORY_CAP), future: [] } }
             : im,
         ),
       }

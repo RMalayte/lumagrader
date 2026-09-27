@@ -1,8 +1,10 @@
 import { useProject } from '../store/ProjectContext'
 import { defaultSettings } from '../engine/defaults'
 import { kelvinToPos, posToKelvin, KELVIN_MIN, KELVIN_MAX, RAW_TINT_MAX } from '../engine/color'
+import { useEffect } from 'react'
 import Accordion from './Accordion.jsx'
 import Slider from './Slider.jsx'
+import Icon from './Icon.jsx'
 
 const TEMP_BAR = 'linear-gradient(to right,#3d7bd9,#c9c9c9,#e0b33a)'
 const TINT_BAR = 'linear-gradient(to right,#3fae4a,#c9c9c9,#c64fc0)'
@@ -14,8 +16,18 @@ const Bar = ({ bg }) => <div className="hue-gradient-bar" style={{ background: b
  * −100…+100 Temp/Tint, like Lightroom does for non-RAW files.
  */
 export default function ColorPanel() {
-  const { state, liveUpdate, beginEdit, commitEdit, commitPatch } = useProject()
+  const { state, dispatch, liveUpdate, beginEdit, commitEdit, commitPatch } = useProject()
   const active = state.images.find((im) => im.id === state.activeId)
+  const picking = state.wbPickActive
+
+  // Esc cancels the White Balance eyedropper.
+  useEffect(() => {
+    if (!picking) return
+    const onKey = (e) => { if (e.key === 'Escape') dispatch({ type: 'SET_WB_PICK', active: false }) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [picking, dispatch])
+
   if (!active) return null
   const s = active.settings
   const defaults = defaultSettings()
@@ -31,6 +43,20 @@ export default function ColorPanel() {
     </Slider>
   )
 
+  const pickButton = (
+    <button
+      type="button"
+      className={'icon-btn wb-pick' + (picking ? ' active-pick' : '')}
+      onClick={() => dispatch({ type: 'SET_WB_PICK', active: !picking })}
+      aria-pressed={picking}
+      aria-label="White balance selector: tap something neutral on the photo"
+      title="White balance selector (tap a grey or white area)"
+    >
+      <Icon name="eyedropper" size={16} />
+    </button>
+  )
+  const pickHint = picking && <p className="panel-hint wb-pick-hint">Tap something on the photo that should be neutral grey or white. <button type="button" className="link-btn" onClick={() => dispatch({ type: 'SET_WB_PICK', active: false })}>Cancel</button></p>
+
   let wbBlock
   if (asShot) {
     const kelvin = s.wb?.kelvin ?? asShot.kelvin
@@ -44,6 +70,7 @@ export default function ColorPanel() {
     wbBlock = (
       <>
         <div className="wb-row">
+          {pickButton}
           <span className="wb-label">White Balance</span>
           <select
             className="wb-select"
@@ -55,6 +82,7 @@ export default function ColorPanel() {
             <option value="custom" disabled={isAsShot}>Custom</option>
           </select>
         </div>
+        {pickHint}
         <Slider
           label="Temp"
           value={kelvinToPos(kelvin)}
@@ -91,6 +119,11 @@ export default function ColorPanel() {
   } else {
     wbBlock = (
       <>
+        <div className="wb-row">
+          {pickButton}
+          <span className="wb-label">White Balance</span>
+        </div>
+        {pickHint}
         {slider('temp', 'Temperature', -100, 100, TEMP_BAR)}
         {slider('tint', 'Tint', -100, 100, TINT_BAR)}
       </>

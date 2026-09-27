@@ -66,6 +66,10 @@ like a normal app and works offline after the first visit.
 ### Color
 - **White balance:** RAW photos use **Temp** in Kelvin and **Tint**, starting from the camera's
   *As Shot* values. JPEGs get relative Temp/Tint sliders.
+  - **White balance selector** (eyedropper next to *White Balance*): tap it, then tap
+    something in the photo that should be neutral grey or white — a grey wall, a white shirt,
+    pavement, clouds. Temp and Tint are set so it turns neutral. Avoid blown-out whites
+    (the app will ask you to pick again) and strongly coloured things. Esc or *Cancel* stops it.
 - **Vibrance** (boosts muted colours and protects skin tones) and **Saturation**.
 - **HSL:** Hue, Saturation and Luminance for eight colour ranges. Use the eyedropper to pick
   a colour on the photo.
@@ -89,6 +93,10 @@ Press **Crop** (`R`) to crop, straighten or rotate by 90°. Choose an aspect rat
   Neutral or Monochrome.
 - **Grade presets:** apply a look with one click. **Save current as preset** stores this
   photo's look (never the crop, masks or spots) so you can use it on any photo.
+  - **Amount:** after you apply a preset, an *Amount* slider appears above the presets.
+    0% = your photo without the preset, 100% = the preset as made, up to 200% for a stronger
+    version. Trying another preset keeps 0% as your original photo. The slider goes away once
+    you edit something else (Undo brings it back).
   - **Import presets:** LumaGrader `.json` files and `.xmp` presets (approximate).
   - **Export presets:** saves all your presets into one `.json` file, a good backup.
 - **Your LUTs:** import `.cube` LUT files and apply them with an adjustable strength.
@@ -224,13 +232,15 @@ supports, and the app tells you when that happens.
   Clearing browsing data or using incognito removes it too. Keep backups with **Export
   presets** and **Save to device**.
 - **"Ran low on graphics memory" / "compatibility mode".** The phone's graphics chip gave up
-  (often on low-memory phones or after switching apps). The app recovers by itself: first with a
-  lighter preview, then, if it keeps failing, in compatibility mode (slower, masks off). Reload
-  the page to try the graphics chip again.
+  (often on low-memory phones). Locking the phone or switching apps is handled quietly and is
+  not a problem. The app recovers by itself: first with a lighter preview, then, if it keeps
+  failing, in compatibility mode (slower, masks off). While in compatibility mode a
+  **Try GPU again** button sits on the photo, and the app retries by itself when you come back
+  to it. *About → Diagnostics* shows which mode the preview is in.
 - **"RAW preview" badge:** this RAW couldn't be decoded, so the camera's embedded JPEG is used.
   Please [report it](https://github.com/RMalayte/lumagrader/issues) with the camera model.
 - **Masks do nothing:** masks need WebGL. Turn on hardware acceleration in your browser settings,
-  and reload if the app switched to compatibility mode.
+  and tap **Try GPU again** if the app switched to compatibility mode.
 - **Something else?** [Report a problem](https://github.com/RMalayte/lumagrader/issues). Please
   include your device, browser and what you did.
 

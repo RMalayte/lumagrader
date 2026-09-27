@@ -6,7 +6,9 @@ import { defaultGeometry } from '../engine/geometry'
 import { savePresetToDB, deletePresetFromDB } from '../hooks/useProjectStore'
 import { renderToCanvas } from '../engine/pipeline'
 import { useFeedback } from '../store/FeedbackContext'
+import { blendPresetSettings, sameSettings, PRESET_AMOUNT_MAX } from '../engine/presetAmount'
 import Accordion from './Accordion.jsx'
+import Slider from './Slider.jsx'
 
 const THUMB_SIZE = 60
 
@@ -20,7 +22,7 @@ function PresetThumb({ proxy, settings, luts }) {
 }
 
 export default function PresetChips() {
-  const { state, dispatch, commitSettings } = useProject()
+  const { state, dispatch, liveUpdate, beginEdit, commitEdit } = useProject()
   const { toast, prompt, confirm } = useFeedback()
   const active = state.images.find((im) => im.id === state.activeId)
   const [proxy, setProxy] = useState(null)
@@ -42,39 +44,79 @@ export default function PresetChips() {
 
   if (!active) return null
 
-  // Presets are color/tone recipes — applying one should never move or reset this photo's own crop/rotation.
-  function announceApplied(name) {
-    const n = state.selectedIds.length
-    if (n > 1) toast(`"${name}" applied to ${n} photos`)
+  const session = state.presetSession
+  const byId = (id) => state.images.find((im) => im.id === id)
+  // A photo is still "in" the last preset (its Amount can change) while its settings are
+  // exactly what that preset produced at one of the amounts used — so Undo/Redo of an
+  // Amount change keep the slider, but any other edit ends it. Returns that amount or null.
+  const amountOf = (im) => {
+    if (!session || !im || !session.before[im.id]) return null
+    const tried = [session.amount, ...[...(session.amounts || [])].reverse()]
+    for (const a of new Set(tried)) {
+      if (sameSettings(im.settings, blendPresetSettings(session.before[im.id], session.full[im.id], a / 100, im.wbAsShot || null))) return a
+    }
+    return null
   }
+  const inSession = (im) => amountOf(im) !== null
 
-  function applyBuiltin(name) {
-    announceApplied(name)
-    commitSettings(active.id, {
+  // Presets are color/tone recipes — applying one never moves or resets a photo's own
+  // crop/rotation, masks or spot removal. With several photos selected, each keeps its own.
+  function builtinFor(im, name) {
+    const own = im.settings
+    return {
       ...defaultSettings(),
       ...PRESETS[name],
       hsl: defaultHsl(),
-      curvePoints: active.settings.curvePoints,
-      curvePointsR: active.settings.curvePointsR,
-      curvePointsG: active.settings.curvePointsG,
-      curvePointsB: active.settings.curvePointsB,
-      geometry: active.settings.geometry,
-      masks: active.settings.masks,
-      spots: active.settings.spots || [],
-      lensDistortion: active.settings.lensDistortion || 0,
-      lensVignette: active.settings.lensVignette || 0,
-      lensVignetteMidpoint: active.settings.lensVignetteMidpoint ?? 50,
-      removeCA: !!active.settings.removeCA,
-    })
+      curvePoints: own.curvePoints,
+      curvePointsR: own.curvePointsR,
+      curvePointsG: own.curvePointsG,
+      curvePointsB: own.curvePointsB,
+      geometry: own.geometry,
+      masks: own.masks,
+      spots: own.spots || [],
+      lensDistortion: own.lensDistortion || 0,
+      lensVignette: own.lensVignette || 0,
+      lensVignetteMidpoint: own.lensVignetteMidpoint ?? 50,
+      removeCA: !!own.removeCA,
+    }
   }
-  function applyCustom(name) {
+  function customFor(im, name) {
     const preset = JSON.parse(JSON.stringify(state.customPresets[name]))
-    preset.geometry = active.settings.geometry
-    preset.masks = active.settings.masks
-    preset.spots = active.settings.spots || []
-    announceApplied(name)
-    commitSettings(active.id, preset)
+    preset.geometry = im.settings.geometry
+    preset.masks = im.settings.masks
+    preset.spots = im.settings.spots || []
+    return preset
   }
+
+  function applyPreset(name, build) {
+    const ids = (state.selectedIds.length > 0 ? state.selectedIds : [active.id]).filter((id) => byId(id))
+    // Switching presets keeps Amount relative to the photo before the FIRST preset, so 0 %
+    // always means "no preset", like trying presets one after another in Lightroom.
+    const keepBase = session && ids.every((id) => inSession(byId(id)))
+    const before = {}, full = {}
+    for (const id of ids) {
+      const im = byId(id)
+      before[id] = keepBase ? session.before[id] : im.settings
+      full[id] = build(im, name)
+    }
+    dispatch({ type: 'SET_SETTINGS_PER_IMAGE', byId: full })
+    dispatch({ type: 'SET_PRESET_SESSION', session: { name, ids, before, full, amount: 100, amounts: [100] } })
+    if (ids.length > 1) toast(`"${name}" applied to ${ids.length} photos`)
+  }
+  const applyBuiltin = (name) => applyPreset(name, builtinFor)
+  const applyCustom = (name) => applyPreset(name, customFor)
+
+  // Amount slider: re-blends every photo the preset went to (and that hasn't been edited since).
+  const shownAmount = amountOf(active)
+  const showAmount = shownAmount !== null
+  const amountTargets = () => (session?.ids || []).map(byId).filter((im) => inSession(im))
+  function setAmount(amount) {
+    for (const im of amountTargets()) {
+      liveUpdate(im.id, blendPresetSettings(session.before[im.id], session.full[im.id], amount / 100, im.wbAsShot || null))
+    }
+    dispatch({ type: 'SET_PRESET_AMOUNT', amount })
+  }
+
   async function saveCurrent() {
     const name = await prompt({ title: 'Save preset', message: 'Saves this photo\'s look (no crop, masks or spot removal).', placeholder: 'e.g. Sunset Ride', confirmLabel: 'Save' })
     if (!name) return
@@ -180,6 +222,23 @@ export default function PresetChips() {
 
   return (
     <Accordion title="Grade presets" id="presets">
+      {showAmount && (
+        <div className="preset-amount">
+          <Slider
+            label={`${session.name} · Amount`}
+            value={shownAmount}
+            min={0}
+            max={PRESET_AMOUNT_MAX}
+            step={1}
+            defaultValue={100}
+            format={(v) => `${Math.round(v)}%`}
+            parse={(text) => Math.min(PRESET_AMOUNT_MAX, Math.max(0, Math.round(Number(String(text).replace(/[^\d.]/g, '')) || 0)))}
+            onBegin={() => amountTargets().forEach((im) => beginEdit(im.id))}
+            onChange={setAmount}
+            onCommit={() => { session.ids.forEach((id) => commitEdit(id)); dispatch({ type: 'REMEMBER_PRESET_AMOUNT' }) }}
+          />
+        </div>
+      )}
       <div className="preset-grid">
         {Object.keys(PRESETS).map((name) => (
           <button key={name} type="button" className="preset-card" onClick={() => applyBuiltin(name)} title={`Apply ${name}`}>

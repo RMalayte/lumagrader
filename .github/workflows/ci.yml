@@ -1,0 +1,29 @@
+# Every push / pull request: lint + build, so errors show up on GitHub before (or alongside)
+# the Cloudflare Pages deploy. Hosting is Cloudflare Pages — nothing is published from here.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci # postinstall copies the LibRaw worker/wasm into public/libraw/
+      - run: npm run lint
+      - run: npm run build

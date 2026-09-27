@@ -498,7 +498,10 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 
 /* Color panel — white balance row (RAW) */
 .wb-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:2px 0 10px;}
-.wb-label{font-size:12.5px;color:var(--text);}
+.wb-label{font-size:12.5px;color:var(--text);flex:1;}
+.wb-pick{flex:none;border-color:var(--line);color:var(--text);}
+.wb-pick-hint{margin:-4px 0 10px;}
+@media (pointer:coarse){.wb-pick{width:38px;height:38px;}}
 .wb-select{background:var(--bg2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12.5px;max-width:60%;}
 .link-btn{background:none;border:none;color:var(--accent);padding:0;font-size:inherit;cursor:pointer;text-decoration:underline;}
 
@@ -566,3 +569,8 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 @media(max-width:859px){.album-btn{width:52px;min-height:52px;}.album-btn-label{max-width:48px;}}
 .about-diag{margin:14px 0 4px;}
 .diag-text{white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.45;background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:10px;margin:8px 0;color:var(--text);max-height:220px;overflow:auto;}
+.preset-amount{margin:0 0 10px;padding:8px 10px 2px;border:1px solid var(--line);border-radius:10px;background:var(--bg2);}
+.compat-badge{position:absolute;top:10px;left:10px;z-index:6;display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:999px;border:1px solid rgba(245,166,35,.6);background:rgba(20,20,20,.85);color:#f3f3f3;font-size:12px;cursor:pointer;backdrop-filter:blur(6px);}
+.compat-badge strong{color:var(--accent2);font-weight:600;}
+.compat-badge-dot{width:7px;height:7px;border-radius:50%;background:var(--accent2);}
+@media (pointer:coarse){.compat-badge{min-height:36px;font-size:12.5px;}}

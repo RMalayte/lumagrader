@@ -5,6 +5,27 @@ export const POPUP_FROM = '0.9.4'
 
 export const CHANGELOG = [
   {
+    version: '0.9.7',
+    date: '2026-09-27',
+    title: 'Phone speed fix',
+    quiet: true,
+    items: [
+      'Fixed: after locking the phone or switching apps, the editor could get stuck in a slow mode. It now stays fast.',
+      '"Try GPU again" button when compatibility mode is on; automatic retry when you come back to the app.',
+    ],
+  },
+  {
+    version: '0.9.6',
+    date: '2026-09-27',
+    title: 'White Balance Picker & Preset Amount',
+    quiet: true,
+    items: [
+      'White balance selector: tap something grey or white in the photo to fix the colour cast.',
+      'Preset Amount: after applying a preset, set its strength from 0% to 200%.',
+      'Fixed: applying a preset to several selected photos no longer copies one photo\'s crop, masks or spot removal to the others.',
+    ],
+  },
+  {
     version: '0.9.5',
     date: '2026-09-27',
     title: 'Phone fix',

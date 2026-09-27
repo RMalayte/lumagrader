@@ -280,6 +280,70 @@ export function wbMatrixFor(s, profileTemp = 0) {
   return abs || rel
 }
 
+// ---- White balance eyedropper ---------------------------------------------------------
+
+/** Minimises f over a 2-D box with Nelder–Mead (small, derivative-free; f is cheap). */
+function minimize2D(f, start, lo, hi, step) {
+  const clampP = (p) => [Math.min(hi[0], Math.max(lo[0], p[0])), Math.min(hi[1], Math.max(lo[1], p[1]))]
+  let pts = [clampP(start), clampP([start[0] + step[0], start[1]]), clampP([start[0], start[1] + step[1]])]
+  let vals = pts.map(f)
+  for (let it = 0; it < 200; it++) {
+    const order = [0, 1, 2].sort((a, b) => vals[a] - vals[b])
+    pts = order.map((i) => pts[i]); vals = order.map((i) => vals[i])
+    if (vals[2] - vals[0] < 1e-12) break
+    const c = [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2]
+    const at = (k) => clampP([c[0] + k * (pts[2][0] - c[0]), c[1] + k * (pts[2][1] - c[1])])
+    const r = at(-1), fr = f(r)
+    if (fr < vals[0]) {
+      const e = at(-2), fe = f(e)
+      if (fe < fr) { pts[2] = e; vals[2] = fe } else { pts[2] = r; vals[2] = fr }
+    } else if (fr < vals[1]) { pts[2] = r; vals[2] = fr } else {
+      const k = at(0.5), fk = f(k)
+      if (fk < vals[2]) { pts[2] = k; vals[2] = fk } else {
+        for (const i of [1, 2]) { pts[i] = [(pts[i][0] + pts[0][0]) / 2, (pts[i][1] + pts[0][1]) / 2]; vals[i] = f(pts[i]) }
+      }
+    }
+  }
+  const best = vals[0] <= vals[1] && vals[0] <= vals[2] ? 0 : vals[1] <= vals[2] ? 1 : 2
+  return { p: pts[best], value: vals[best] }
+}
+
+// How far a linear RGB colour is from neutral (log chromaticity ratios).
+const castOf = ([r, g, b]) => {
+  const e = 1e-6
+  const lr = Math.log(Math.max(e, r) / Math.max(e, g)), lb = Math.log(Math.max(e, b) / Math.max(e, g))
+  return lr * lr + lb * lb
+}
+
+/**
+ * White balance eyedropper: the settings that make `linearRGB` (a colour sampled from the
+ * photo with NO white balance applied — linear sRGB) neutral grey.
+ * RAW (s.asShotWB set): returns { wb: { kelvin, tint } | null } on Lightroom's Kelvin scale.
+ * JPEG: returns { temp, tint } (relative −100…+100).
+ * `clipped` is true when the picked colour can't be fully neutralised within the slider range.
+ */
+export function solveWhiteBalance(linearRGB, s, profileTemp = 0) {
+  if (s.asShotWB) {
+    const shot = s.asShotWB
+    const matFor = (p) => wbMatrixFor({ ...s, wb: { kelvin: posToKelvinExact(p[0]), tint: p[1] } }, profileTemp) || IDENTITY
+    const f = (p) => castOf(apply3(matFor(p), linearRGB))
+    const cur = s.wb || shot
+    const { p, value } = minimize2D(f, [kelvinToPosExact(cur.kelvin), cur.tint], [0, -RAW_TINT_MAX], [1000, RAW_TINT_MAX], [60, 20])
+    const kelvinRaw = posToKelvinExact(p[0])
+    const kelvin = Math.round(kelvinRaw / (kelvinRaw < 10000 ? 10 : 50)) * (kelvinRaw < 10000 ? 10 : 50)
+    const tint = Math.round(p[1])
+    const same = Math.abs(kelvin - shot.kelvin) < 1 && Math.abs(tint - shot.tint) < 0.5
+    return { wb: same ? null : { kelvin, tint }, clipped: value > 0.002 }
+  }
+  const f = (p) => castOf(apply3(whiteBalanceMatrix(p[0] + profileTemp, p[1]) || IDENTITY, linearRGB))
+  const { p, value } = minimize2D(f, [s.temp || 0, s.tint || 0], [-100 - profileTemp, -100], [100 - profileTemp, 100], [20, 20])
+  return { temp: Math.round(p[0]), tint: Math.round(p[1]), clipped: value > 0.002 }
+}
+
+const LOG_KELVIN_SPAN = Math.log(KELVIN_MAX / KELVIN_MIN)
+const kelvinToPosExact = (k) => (Math.log(Math.min(KELVIN_MAX, Math.max(KELVIN_MIN, k)) / KELVIN_MIN) / LOG_KELVIN_SPAN) * 1000
+const posToKelvinExact = (p) => KELVIN_MIN * Math.exp((Math.min(1000, Math.max(0, p)) / 1000) * LOG_KELVIN_SPAN)
+
 // ---- Shared per-pixel helpers (values 0..1, sRGB-encoded unless noted) -----------------
 
 export const lumaOf = (r, g, b) => 0.2126 * r + 0.7152 * g + 0.0722 * b
