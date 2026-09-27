@@ -182,13 +182,28 @@ vec3 applyGrade(vec3 c) {
   float wh = smoothstep(0.66 + shift - width, 0.66 + shift + width, L);
   float wm = smoothstep(0.0, 1.0, 1.0 - abs(L - (0.575 + shift)) / (0.22 + 0.3 * u_gradeBlend));
   float fade = smoothstep(0.05, 0.3, L) * (1.0 - 0.7 * smoothstep(0.93, 1.0, L));
-  float w[4] = float[4](ws, wm, wh, 1.0);
+  vec4 w = vec4(ws, wm, wh, 1.0); // (no array constructors: Mali/ANGLE rejects them)
   for (int i = 0; i < 4; i++) {
     o.yz += u_gradeTint[i] * w[i] * fade;
     o.x += u_gradeLum[i] * w[i];
   }
   o.x = max(o.x, 0.0);
   return linearToSrgb(fitGamut(oklabToLinear(o)));
+}
+
+// HSL band centres (degrees), incl. 360 to close the circle — same as color.js HSL_CENTERS.
+// A function rather than a float[9] constructor: some Mali drivers (via ANGLE) fail to compile
+// array constructors ("no default precision defined for variable 'float[N]'").
+float hslCenter(int i) {
+  if (i <= 0) return 0.0;
+  if (i == 1) return 30.0;
+  if (i == 2) return 60.0;
+  if (i == 3) return 120.0;
+  if (i == 4) return 180.0;
+  if (i == 5) return 240.0;
+  if (i == 6) return 275.0;
+  if (i == 7) return 320.0;
+  return 360.0;
 }
 
 // Integer hash + value noise — bit-identical to color.js grainAt().
@@ -268,10 +283,9 @@ void main() {
     vec2 hs = hueSat(c);
     float fade = smoothstep(0.03, 0.2, hs.y);
     if (fade > 0.0) {
-      float centers[9] = float[9](0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 275.0, 320.0, 360.0);
       int i0 = 7;
-      for (int i = 0; i < 8; i++) { if (hs.x >= centers[i] && hs.x < centers[i + 1]) { i0 = i; } }
-      float t = smoothstep(0.0, 1.0, (hs.x - centers[i0]) / (centers[i0 + 1] - centers[i0]));
+      for (int i = 0; i < 8; i++) { if (hs.x >= hslCenter(i) && hs.x < hslCenter(i + 1)) { i0 = i; } }
+      float t = smoothstep(0.0, 1.0, (hs.x - hslCenter(i0)) / (hslCenter(i0 + 1) - hslCenter(i0)));
       int i1 = i0 == 7 ? 0 : i0 + 1;
       float dh = mix(u_hslHue[i0], u_hslHue[i1], t) * fade;
       float ds = mix(u_hslSat[i0], u_hslSat[i1], t) * fade;
@@ -488,13 +502,21 @@ uniform vec2 u_direction;
 uniform vec2 u_texel;
 uniform float u_radius;
 
+// Gaussian weights (no float[5] constructor: Mali/ANGLE rejects array constructors).
+float blurWeight(int i) {
+  if (i == 0) return 0.227027;
+  if (i == 1) return 0.1945946;
+  if (i == 2) return 0.1216216;
+  if (i == 3) return 0.054054;
+  return 0.016216;
+}
+
 void main() {
-  float weights[5] = float[5](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
-  vec3 result = texture(u_image, v_uv).rgb * weights[0];
+  vec3 result = texture(u_image, v_uv).rgb * blurWeight(0);
   for (int i = 1; i < 5; i++) {
     vec2 offset = u_direction * u_texel * float(i) * u_radius;
-    result += texture(u_image, v_uv + offset).rgb * weights[i];
-    result += texture(u_image, v_uv - offset).rgb * weights[i];
+    result += texture(u_image, v_uv + offset).rgb * blurWeight(i);
+    result += texture(u_image, v_uv - offset).rgb * blurWeight(i);
   }
   outColor = vec4(result, 1.0);
 }`

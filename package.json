@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "eslint src",
+    "lint": "eslint src && node scripts/check-shaders.mjs",
     "postinstall": "node scripts/copy-libraw.mjs",
     "predev": "node scripts/copy-libraw.mjs",
     "prebuild": "node scripts/copy-libraw.mjs"

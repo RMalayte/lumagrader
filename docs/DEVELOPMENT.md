@@ -63,3 +63,10 @@ stores the original files, settings, ratings, albums, snapshots and brush-mask P
    `quiet: true` keeps a small fix out of the popup).
 3. `npm run lint && npm run build`, test on a phone (push a non-`main` branch for a Cloudflare
    preview address), then push to `main` — Cloudflare Pages deploys it.
+
+## Shaders and mobile GPUs
+
+`npm run lint` also runs `scripts/check-shaders.mjs`. It rejects GLSL array constructors
+(`float[4](…)`): Mali GPUs behind Chrome's ANGLE fail to compile them ("no default precision
+defined for variable 'float[4]'"), which knocks phones into the slow compatibility mode.
+Use `vecN` or a small function instead.
