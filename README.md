@@ -42,6 +42,57 @@ Push to `main` — `.github/workflows/deploy.yml` lints, builds and publishes `d
 GitHub Pages. One-time setup: repo **Settings → Pages → Build and deployment → Source:
 GitHub Actions**. The site appears at `https://<username>.github.io/<repo>/`.
 
+## Kelvin on Lightroom's scale (v0.7.3)
+
+As Shot / Temp Kelvin is shown on Lightroom's scale: LibRaw only has each camera's daylight
+colour matrix (Lightroom also interpolates a tungsten one), which reads warm-light white points
+a bit high. A mired correction that is zero at D65 (fitted to one Canon RAW: 5106 → 4900 K)
+converts; the maths still uses the physical value. Displayed in 50 K steps like Lightroom.
+Tint gets the same D65-anchored correction (v0.7.4; same Canon RAW: +3 → +6).
+
+## "Luma Color" base look + profile names (v0.7.2)
+
+- RAW photos get a Lightroom-like default colour on top of the camera match
+  (`src/engine/rawLook.js`): richer reds/oranges, blues and magentas, oranges/yellows pulled
+  slightly toward red, brighter blues — per-hue shifts in Oklab, neutrals untouched, applied
+  once in the RAW develop via a 33³ LUT. Fitted from one zero-settings comparison (Canon RAW,
+  Lightroom "Adobe Color" vs LumaGrader); colour error on coloured areas halved.
+- Profiles are named **Luma Color, Luma Standard, Luma Vivid, Luma Landscape, Luma Portrait,
+  Luma Neutral, Luma Monochrome** (previously "Adobe …" internally — renamed because Adobe is a
+  trademark and these are our own looks). Old projects/presets and LR XMP "Adobe …" profile
+  names map automatically.
+
+## Kelvin white balance + live histogram (v0.7.1)
+
+- **RAW photos: Temp in Kelvin (2,000–50,000 K, logarithmic track like Lightroom) + Tint
+  (−150…+150)**, starting at the camera's **As Shot** value. As Shot is computed from the RAW's
+  white-balance multipliers and the camera's Adobe colour matrix (LibRaw `cam_mul`/`cam_xyz`),
+  converted with the DNG SDK conventions (Robertson isotherms, tint × −3000), so the numbers
+  line up closely with Lightroom's. Changing it re-balances the rendered photo by a Bradford
+  adaptation from the new white to the as-shot white. Click the value to type an exact Kelvin.
+  LR RAW presets with a Kelvin white balance now import. JPEGs keep relative −100…+100 Temp/Tint.
+- **Histogram updates while you drag** (throttled to ~12×/s), not only after release.
+
+## Color engine v3 (v0.7.0)
+
+Lightroom-like color, in `src/engine/color.js` (JS, used by the Canvas 2D fallback) and the
+same math in the WebGL shader:
+
+- **Temp / Tint = real white balance.** Relative to the photo's own white (0 = as shot; RAWs
+  already carry the camera's white balance). Chromatic adaptation (Bradford) in linear light
+  from the "assumed" illuminant on the daylight locus back to neutral — greys shift cleanly,
+  exposure is unchanged. −100 ≈ light at ~3,500 K; +100 is the mirror-image warming.
+- **Saturation / Vibrance:** chroma scaled around each pixel's true-luminance grey, stopping at
+  the gamut edge (no clipped channels). Saturation −100 = proper black & white. Vibrance
+  boosts muted colours much more than saturated ones and protects skin tones.
+- **HSL:** 8 overlapping bands whose weights sum to 1 (no gaps between bands), neutrals are
+  never affected. Hue ±30°, Saturation grey…2×, Luminance ±1.2 EV in linear light.
+- **Bipolar presence:** Texture, Clarity, Dehaze go −100…+100 (negative softens / adds haze);
+  local-mask Sharpness −100…+100.
+- **Vignette** uses Lightroom's sign: negative darkens corners, positive lightens.
+- Settings are `engine: 3`; older projects/presets are migrated (vignette sign flipped). Old
+  colour edits keep their numbers but render with the new engine, so they look a bit different.
+
 ## Unsaved work & mobile touch (v0.6.3)
 
 - **Crash/close recovery:** while a session has unsaved changes it is mirrored to IndexedDB

@@ -29,7 +29,9 @@ uniform sampler2D u_gfCoef;    // guided-filter (A, B): local base = A·log2(Y) 
 uniform bool u_useTone;
 uniform bool u_useLocal;
 uniform float u_exposureEV;
-uniform float u_saturate;
+uniform float u_sat;      // Saturation −1..1 (color.js satVibFactor)
+uniform bool u_useWB;
+uniform mat3 u_wbMatrix;  // linear-sRGB white balance (color.js whiteBalanceMatrix)
 
 uniform float u_curveStrength;
 
@@ -41,9 +43,6 @@ uniform float u_hslLum[8];
 uniform bool u_hslActive;
 uniform float u_vibrance;
 
-uniform vec3 u_tempTintColor;
-uniform float u_temp;
-uniform float u_tint;
 
 uniform vec3 u_gradeColor;
 uniform float u_gradeIntensity;
@@ -91,10 +90,6 @@ vec3 hsl2rgb(vec3 hsl) {
   return vec3(hue2rgb(p, q, h + 1.0 / 3.0), hue2rgb(p, q, h), hue2rgb(p, q, h - 1.0 / 3.0));
 }
 
-float blendOverlay(float base, float blend) {
-  return base < 0.5 ? (2.0 * base * blend) : (1.0 - 2.0 * (1.0 - base) * (1.0 - blend));
-}
-
 vec3 srgbToLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
 }
@@ -109,6 +104,83 @@ float lutCoord(float v, float n) {
   return t * (n - 1.0) / n + 0.5 / n;
 }
 
+// ---- Engine v3 color (mirrors engine/color.js) ----
+float luma709(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+vec3 fitGamut(vec3 lin) {
+  float m = max(max(lin.r, lin.g), lin.b);
+  if (m > 1.0) {
+    float Y2 = luma709(lin);
+    lin = Y2 >= 1.0 ? vec3(1.0) : Y2 + (lin - Y2) * ((1.0 - Y2) / (m - Y2));
+  }
+  return max(lin, 0.0);
+}
+
+float maxChromaScale(vec3 c, float L) {
+  float k = 1e6;
+  for (int i = 0; i < 3; i++) {
+    float d = c[i] - L;
+    if (d > 1e-6) k = min(k, (1.0 - L) / d);
+    else if (d < -1e-6) k = min(k, L / -d);
+  }
+  return k;
+}
+
+// True luminance re-encoded (color.js greyOf) — what a colour becomes at zero saturation.
+float greyOf(vec3 c) { return linearToSrgb(vec3(luma709(srgbToLinear(max(c, 0.0))))).r; }
+
+vec3 scaleChroma(vec3 c, float k) {
+  float L = greyOf(c);
+  if (k > 1.0) k = min(k, max(1.0, maxChromaScale(c, L)));
+  k = max(0.0, k);
+  return L + (c - L) * k;
+}
+
+vec2 hueSat(vec3 c) {
+  float mx = max(max(c.r, c.g), c.b);
+  float mn = min(min(c.r, c.g), c.b);
+  float ch = mx - mn;
+  if (ch <= 1e-6) return vec2(0.0);
+  float h;
+  if (mx == c.r) h = mod((c.g - c.b) / ch, 6.0);
+  else if (mx == c.g) h = (c.b - c.r) / ch + 2.0;
+  else h = (c.r - c.g) / ch + 4.0;
+  h *= 60.0;
+  if (h < 0.0) h += 360.0;
+  return vec2(h, mx > 0.0 ? ch / mx : 0.0);
+}
+
+vec3 withHue(vec3 c, float h) {
+  float mx = max(max(c.r, c.g), c.b);
+  float mn = min(min(c.r, c.g), c.b);
+  float ch = mx - mn;
+  float hp = mod(mod(h, 360.0) + 360.0, 360.0) / 60.0;
+  float x = ch * (1.0 - abs(mod(hp, 2.0) - 1.0));
+  vec3 o;
+  if (hp < 1.0) o = vec3(ch, x, 0.0);
+  else if (hp < 2.0) o = vec3(x, ch, 0.0);
+  else if (hp < 3.0) o = vec3(0.0, ch, x);
+  else if (hp < 4.0) o = vec3(0.0, x, ch);
+  else if (hp < 5.0) o = vec3(x, 0.0, ch);
+  else o = vec3(ch, 0.0, x);
+  return o + mn;
+}
+
+float satVibFactor(vec3 c, float sat, float vib) {
+  float k = 1.0 + sat;
+  if (vib != 0.0) {
+    vec2 hs = hueSat(c);
+    if (vib > 0.0) {
+      float dh = abs(hs.x - 28.0); if (dh > 180.0) dh = 360.0 - dh;
+      float skin = max(0.0, 1.0 - dh / 30.0) * smoothstep(0.08, 0.3, hs.y);
+      k *= 1.0 + vib * 1.3 * (1.0 - hs.y) * (1.0 - hs.y) * (1.0 - 0.55 * skin);
+    } else {
+      k *= 1.0 + vib * 0.85;
+    }
+  }
+  return k;
+}
+
 float hashNoise(vec2 co, float seed) {
   return fract(sin(dot(co, vec2(12.9898, 78.233)) + seed) * 43758.5453);
 }
@@ -117,29 +189,28 @@ void main() {
   vec3 c = texture(u_image, v_uv).rgb;
 
   // Engine v2 tone — see tone.js (math) and localBase.js (edge-aware local base).
-  // Linear light; Highlights/Shadows from the local base, then Whites/Blacks/Contrast;
-  // luminance-ratio scaling keeps hue; gamut fit instead of per-channel clipping.
-  if (u_useTone) {
+  // Linear light; white balance first (like a RAW converter), then Highlights/Shadows from the
+  // local base, then Whites/Blacks/Contrast; luminance-ratio scaling keeps hue; gamut fit
+  // instead of per-channel clipping.
+  if (u_useTone || u_useWB) {
     vec3 lin = srgbToLinear(c);
-    float Y0 = dot(lin, vec3(0.2126, 0.7152, 0.0722));
-    float v0 = log2(max(Y0, 1e-6));
-    float v1 = v0 + u_exposureEV;
-    if (u_useLocal) {
-      vec2 ab = texture(u_gfCoef, vec2(v_uv.x, 1.0 - v_uv.y)).rg; // map rows are top-down
-      float base = ab.x * v0 + ab.y + u_exposureEV;
-      v1 += texture(u_localLUT, vec2(lutCoord(base, 512.0), 0.5)).r;
+    if (u_useWB) lin = max(u_wbMatrix * lin, 0.0);
+    if (u_useTone) {
+      float Y0 = luma709(lin);
+      float v0 = log2(max(Y0, 1e-6));
+      float v1 = v0 + u_exposureEV;
+      if (u_useLocal) {
+        vec2 ab = texture(u_gfCoef, vec2(v_uv.x, 1.0 - v_uv.y)).rg; // map rows are top-down
+        float base = ab.x * v0 + ab.y + u_exposureEV;
+        v1 += texture(u_localLUT, vec2(lutCoord(base, 512.0), 0.5)).r;
+      }
+      float Yf = exp2(v1) * texture(u_globalLUT, vec2(lutCoord(v1, 1024.0), 0.5)).r;
+      lin *= Yf / max(Y0, 1e-6);
     }
-    float Yf = exp2(v1) * texture(u_globalLUT, vec2(lutCoord(v1, 1024.0), 0.5)).r;
-    lin *= Yf / max(Y0, 1e-6);
-    float m = max(max(lin.r, lin.g), lin.b);
-    if (m > 1.0) {
-      float Y2 = dot(lin, vec3(0.2126, 0.7152, 0.0722));
-      lin = Y2 >= 1.0 ? vec3(1.0) : Y2 + (lin - Y2) * ((1.0 - Y2) / (m - Y2));
-    }
-    c = linearToSrgb(lin);
+    c = linearToSrgb(fitGamut(lin));
   }
-  float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(vec3(luma), c, u_saturate);
+  // Saturation + Vibrance: chroma around luma, capped at the gamut edge.
+  if (u_sat != 0.0 || u_vibrance != 0.0) c = scaleChroma(c, satVibFactor(c, u_sat, u_vibrance));
   c = clamp(c, 0.0, 1.0);
 
   // Dehaze approximation: not a true dark-channel-prior haze removal — just extra
@@ -149,6 +220,11 @@ void main() {
     c = clamp((c - 0.5) * (1.0 + u_dehaze * 0.6) + 0.5, 0.0, 1.0);
     float dehazeLuma = dot(c, vec3(0.2126, 0.7152, 0.0722));
     c = clamp(mix(vec3(dehazeLuma), c, 1.0 + u_dehaze * 0.3), 0.0, 1.0);
+  } else if (u_dehaze < 0.0) {
+    // Negative Dehaze adds haze: a milky veil + a little desaturation.
+    float amt = -u_dehaze;
+    c = mix(c, vec3(luma709(c)), amt * 0.3);
+    c = mix(c, vec3(0.8), amt * 0.45);
   }
 
   if (u_curveStrength != 0.0) {
@@ -172,35 +248,23 @@ void main() {
     c = mix(c, graded, u_lutStrength);
   }
 
-  if (u_hslActive || u_vibrance != 0.0) {
-    vec3 hsl = rgb2hsl(c);
-    if (u_hslActive) {
-      float dh = 0.0, ds = 0.0, dl = 0.0;
-      float centers[8] = float[8](0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 275.0, 320.0);
-      for (int i = 0; i < 8; i++) {
-        float dist = abs(hsl.x - centers[i]);
-        dist = min(dist, 360.0 - dist);
-        float w = max(0.0, 1.0 - dist / 40.0);
-        if (w > 0.0) {
-          dh += u_hslHue[i] * w * 0.4;
-          ds += (u_hslSat[i] * w) / 120.0;
-          dl += (u_hslLum[i] * w) / 200.0;
-        }
-      }
-      hsl.x = mod(hsl.x + dh + 360.0, 360.0);
-      hsl.y = clamp(hsl.y + ds, 0.0, 1.0);
-      hsl.z = clamp(hsl.z + dl, 0.0, 1.0);
+  // HSL — 8 overlapping bands (weights sum to 1), faded out for near-greys.
+  if (u_hslActive) {
+    vec2 hs = hueSat(c);
+    float fade = smoothstep(0.03, 0.2, hs.y);
+    if (fade > 0.0) {
+      float centers[9] = float[9](0.0, 30.0, 60.0, 120.0, 180.0, 240.0, 275.0, 320.0, 360.0);
+      int i0 = 7;
+      for (int i = 0; i < 8; i++) { if (hs.x >= centers[i] && hs.x < centers[i + 1]) { i0 = i; } }
+      float t = smoothstep(0.0, 1.0, (hs.x - centers[i0]) / (centers[i0 + 1] - centers[i0]));
+      int i1 = i0 == 7 ? 0 : i0 + 1;
+      float dh = mix(u_hslHue[i0], u_hslHue[i1], t) * fade;
+      float ds = mix(u_hslSat[i0], u_hslSat[i1], t) * fade;
+      float dl = mix(u_hslLum[i0], u_hslLum[i1], t) * fade;
+      if (dh != 0.0) c = withHue(c, hs.x + dh * 0.3);
+      if (ds != 0.0) c = scaleChroma(c, 1.0 + ds / 100.0);
+      if (dl != 0.0) c = linearToSrgb(fitGamut(srgbToLinear(c) * exp2(dl / 100.0 * 1.2)));
     }
-    if (u_vibrance != 0.0) {
-      hsl.y = clamp(hsl.y + u_vibrance * (1.0 - hsl.y) * 0.8, 0.0, 1.0);
-    }
-    c = hsl2rgb(hsl);
-  }
-
-  if (u_temp != 0.0 || u_tint != 0.0) {
-    vec3 blend = u_tempTintColor;
-    vec3 blended = vec3(blendOverlay(c.r, blend.r), blendOverlay(c.g, blend.g), blendOverlay(c.b, blend.b));
-    c = mix(c, blended, 0.35);
   }
 
   if (u_gradeIntensity > 0.0) {
@@ -215,14 +279,15 @@ void main() {
     c += n;
   }
 
-  if (u_vignette > 0.0) {
+  if (u_vignette != 0.0) { // Lightroom convention: negative darkens the corners, positive lightens
     vec2 pixelPos = v_uv * u_resolution;
     vec2 center = u_resolution * 0.5;
     float dist = distance(pixelPos, center);
     float innerR = min(u_resolution.x, u_resolution.y) * 0.3;
     float outerR = max(u_resolution.x, u_resolution.y) * 0.7;
     float t = clamp((dist - innerR) / (outerR - innerR), 0.0, 1.0);
-    c -= t * (u_vignette / 140.0);
+    float a = t * abs(u_vignette) / 140.0;
+    c = u_vignette < 0.0 ? c * (1.0 - a) : mix(c, vec3(1.0), a); // matches the Canvas 2D overlay
   }
 
   outColor = vec4(clamp(c, 0.0, 1.0), 1.0);
@@ -294,7 +359,7 @@ void main() {
   c.b -= u_temp * 0.12;
   if (u_useDetailBlur) {
     vec3 blurred = texture(u_blurredForSharpen, v_uv).rgb;
-    if (u_sharpen > 0.0) c = c + u_sharpen * (c - blurred);
+    if (u_sharpen != 0.0) c = c + u_sharpen * (c - blurred); // negative = soften
     if (u_denoise > 0.0) c = mix(c, blurred, u_denoise);
   }
   c = clamp(c, 0.0, 1.0);

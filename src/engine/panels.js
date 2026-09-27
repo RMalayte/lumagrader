@@ -7,7 +7,7 @@ export const PANEL_KEYS = {
   luts: ['lut', 'lutStrength'],
   light: ['exposure', 'contrast', 'highlights', 'shadows', 'whites', 'blacks'],
   curves: ['curvePoints', 'curvePointsR', 'curvePointsG', 'curvePointsB', 'curve'],
-  color: ['temp', 'tint', 'saturation', 'vibrance'],
+  color: ['wb', 'temp', 'tint', 'saturation', 'vibrance'],
   hsl: ['hsl'],
   colorGrade: ['colorGrade'],
   effects: ['vignette', 'grain'],
@@ -44,9 +44,12 @@ export function panelResetPatch(panelId) {
  * their effect disappears while the user's values stay intact in `settings`.
  */
 export function effectiveSettings(image) {
+  // The photo's own as-shot white balance (RAW) travels with the settings for rendering only;
+  // it is never stored in settings, so copying edits to another photo can't carry it along.
+  const base = image?.wbAsShot ? { ...image.settings, asShotWB: image.wbAsShot } : image.settings
   const bypass = image?.bypass
-  if (!bypass) return image.settings
+  if (!bypass) return base
   const bypassed = Object.keys(bypass).filter((id) => bypass[id])
-  if (!bypassed.length) return image.settings
-  return bypassed.reduce((acc, id) => ({ ...acc, ...panelResetPatch(id) }), image.settings)
+  if (!bypassed.length) return base
+  return bypassed.reduce((acc, id) => ({ ...acc, ...panelResetPatch(id) }), base)
 }

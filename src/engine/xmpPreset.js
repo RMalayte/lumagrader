@@ -109,8 +109,7 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
   for (const [lr, key, label] of [['Texture', 'texture', 'Texture'], ['Clarity2012', 'clarity', 'Clarity'], ['Dehaze', 'dehaze', 'Dehaze']]) {
     const v = r.num(lr) ?? (lr === 'Clarity2012' ? r.num('Clarity') : null)
     if (v === null) continue
-    if (v < 0) partial.push(`${label} ${v} (only positive values are supported)`)
-    set(key, clamp(v, 0, 100), label)
+    set(key, clamp(v, -100, 100), label)
   }
   direct('Vibrance', 'vibrance', 'Vibrance')
   direct('Saturation', 'saturation', 'Saturation')
@@ -120,12 +119,12 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
   const incTint = r.num('IncrementalTint')
   if (incTemp !== null) set('temp', clamp(incTemp, -100, 100), 'Temperature')
   if (incTint !== null) set('tint', clamp(incTint, -100, 100), 'Tint')
-  if (incTemp === null && r.num('Temperature') !== null && r.raw('WhiteBalance') !== 'As Shot') {
-    skipped.push('White balance in Kelvin (RAW-only preset)')
-  }
-  if (incTint === null && r.num('Tint') !== null && r.raw('WhiteBalance') !== 'As Shot') {
-    set('tint', clamp(r.num('Tint') / 1.5, -100, 100), 'Tint')
-    partial.push('Tint (converted from a RAW preset)')
+  // RAW presets carry absolute Kelvin/Tint (WhiteBalance = Custom, Daylight, …). They apply
+  // to RAW photos (Kelvin white balance); JPEGs ignore them, as in Lightroom.
+  const kelvin = r.num('Temperature')
+  if (incTemp === null && kelvin !== null && r.raw('WhiteBalance') !== 'As Shot') {
+    s.wb = { kelvin: Math.round(clamp(kelvin, 2000, 50000)), tint: Math.round(clamp(r.num('Tint') ?? 0, -150, 150)) }
+    applied.push('White balance (Kelvin — RAW photos)')
   }
 
   // --- HSL (same 8 bands as Lightroom) -------------------------------------------------
@@ -156,8 +155,7 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
   // --- Effects -------------------------------------------------------------------------
   const vig = r.num('PostCropVignetteAmount')
   if (vig !== null) {
-    if (vig > 0) partial.push('Vignette (white/lightening vignettes aren\'t supported)')
-    set('vignette', clamp(-vig, 0, 100), 'Vignette')
+    set('vignette', clamp(vig, -100, 100), 'Vignette') // same sign convention since engine v3
   }
   direct('GrainAmount', 'grain', 'Grain', 0, 100)
 
@@ -206,12 +204,13 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
       })()
     : r.raw('CameraProfile')
   if (lookName) {
-    const match = COLOR_PROFILE_NAMES.find((n) => n.toLowerCase() === String(lookName).toLowerCase())
+    const wanted = String(lookName).toLowerCase().replace(/^adobe /, 'luma ') // LR "Adobe Color" → our "Luma Color"
+    const match = COLOR_PROFILE_NAMES.find((n) => n.toLowerCase() === wanted)
     if (match) { s.colorProfile = match; applied.push('Profile') }
     else skipped.push(`Profile "${lookName}"`)
   }
   if (r.raw('ConvertToGrayscale') === 'True') {
-    s.colorProfile = 'Adobe Monochrome'
+    s.colorProfile = 'Luma Monochrome'
     if (!applied.includes('Profile')) applied.push('Black & white')
   }
 

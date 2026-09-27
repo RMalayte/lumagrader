@@ -1,12 +1,12 @@
 import { useProject } from '../store/ProjectContext'
-import { COLOR_PROFILE_NAMES } from '../engine/colorProfiles'
+import { COLOR_PROFILE_NAMES, canonicalProfile } from '../engine/colorProfiles'
 import Accordion from './Accordion.jsx'
 
 export default function ColorProfilePicker() {
   const { state, commitPatch } = useProject()
   const active = state.images.find((im) => im.id === state.activeId)
   if (!active) return null
-  const current = active.settings.colorProfile || 'Adobe Color'
+  const current = canonicalProfile(active.settings.colorProfile)
 
   return (
     <Accordion title="Profile" id="profile" panelId="profile">
@@ -20,7 +20,7 @@ export default function ColorProfilePicker() {
             className={'preset-chip' + (current === name ? ' active' : '')}
             onClick={() => commitPatch(active.id, { colorProfile: name })}
           >
-            {name.replace('Adobe ', '')}
+            {name}
           </button>
         ))}
       </div>

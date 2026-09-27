@@ -20,7 +20,11 @@ function decimalsOf(step) {
  * History: `onBegin` is called before a change and `onCommit` after it, so one drag,
  * one arrow-key press or one typed value = one undo step.
  */
-export default function Slider({ label, value, min, max, step = 1, defaultValue = 0, onChange, onBegin, onCommit, children }) {
+/**
+ * Optional `format(value) → text` and `parse(text) → value` let a slider show and accept a
+ * different unit than its position (e.g. Kelvin on a logarithmic 0…1000 track).
+ */
+export default function Slider({ label, value, min, max, step = 1, defaultValue = 0, onChange, onBegin, onCommit, children, format, parse }) {
   const inputId = useId()
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -28,7 +32,7 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
   const rangeRef = useRef(null)
   const lastTapRef = useRef(0)
   const decimals = decimalsOf(step)
-  const shown = Number(value).toFixed(decimals)
+  const shown = format ? format(Number(value)) : Number(value).toFixed(decimals)
   const isDefault = Number(value) === Number(defaultValue)
 
   useEffect(() => {
@@ -127,7 +131,7 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
   function finishTyping(apply) {
     setEditing(false)
     if (!apply) return
-    const n = Number(draft)
+    const n = parse ? parse(draft) : Number(draft)
     if (draft.trim() === '' || Number.isNaN(n)) return
     const clamped = Math.min(max, Math.max(min, n))
     const snapped = Number((Math.round(clamped / step) * step).toFixed(decimals))
@@ -156,9 +160,9 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
               className="slider-value-input"
               type="number"
               inputMode="decimal"
-              min={min}
-              max={max}
-              step={step}
+              min={parse ? undefined : min}
+              max={parse ? undefined : max}
+              step={parse ? 'any' : step}
               value={draft}
               aria-label={`${label} value`}
               onChange={(e) => setDraft(e.target.value)}
@@ -182,7 +186,7 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
               title="Click to type a value"
               aria-label={`${label}: ${shown}. Click to type a value`}
             >
-              {Number(value) > 0 && min < 0 ? '+' : ''}
+              {!format && Number(value) > 0 && min < 0 ? '+' : ''}
               {shown}
             </button>
           )}

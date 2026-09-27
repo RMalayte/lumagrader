@@ -1,3 +1,4 @@
+import { asShotFromLibRaw } from './color'
 // Real RAW decoding (v0.6): LibRaw (WebAssembly, public/libraw/) decodes the sensor data to
 // linear 16-bit RGB, then workers/developWorker.js "develops" it into the 8-bit image the
 // editor starts from (see rawDevelop.js). Everything runs off the main thread.
@@ -139,7 +140,7 @@ function rotateRGBA(rgba, w, h, quarterTurnsCW) {
 export async function decodeAndDevelopRaw(file, { half = true, params = null, target = null } = {}) {
   const bytes = new Uint8Array(await file.arrayBuffer())
   await call('open', bytes, { ...DECODE_SETTINGS, halfSize: half })
-  const meta = await call('metadata', false)
+  const meta = await call('metadata', true) // full: includes colour data (as-shot white balance)
   const img = await call('imageData')
   if (!img?.data || img.colors !== 3 || img.bits !== 16) throw new Error('Unexpected LibRaw output')
   if (!half) terminateLibRaw() // free the large WASM heap right after a full-size decode
@@ -154,7 +155,9 @@ export async function decodeAndDevelopRaw(file, { half = true, params = null, ta
     ;({ rgba, w, h } = rotateRGBA(rgba, w, h, flip === 5 ? 3 : 1))
   }
   const fitted = { ...res.params, portrait: h > w }
-  return { imageData: new ImageData(rgba, w, h), params: fitted }
+  let asShotWB = null
+  try { asShotWB = asShotFromLibRaw(meta?.color_data) } catch { /* no Kelvin for this file */ }
+  return { imageData: new ImageData(rgba, w, h), params: fitted, asShotWB }
 }
 
 /** ImageData → Blob (PNG keeps the clean RAW pixels; no JPEG artifacts reintroduced). */

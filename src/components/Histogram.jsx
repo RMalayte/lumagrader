@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import { usePreview, useInteracting } from '../hooks/useImageSources'
 import { renderToCanvas } from '../engine/pipeline'
@@ -8,6 +8,7 @@ import { clippingFromHistogram, CLIP_THRESHOLD } from '../engine/clipping'
 // Proxy resolution. Big enough that small blown highlights (sky, speculars) aren't averaged
 // away by the downscale, small enough to stay cheap on every edit.
 const SIZE = 480
+const LIVE_INTERVAL = 80 // ms between histogram updates while a slider is dragged
 
 function drawHistogram(canvas, r, g, b) {
   const ctx = canvas.getContext('2d')
@@ -60,17 +61,25 @@ export default function Histogram() {
   const preview = usePreview(active)
   const interacting = useInteracting()
 
-  useEffect(() => {
-    // Skip while a slider is being dragged — the histogram catches up on release.
-    if (!active || !preview || interacting || !canvasRef.current) return
-    const timer = setTimeout(() => {
-      // Small standalone proxy so this never depends on / competes with the main preview canvas.
-      const proxy = document.createElement('canvas')
-      const scale = Math.min(1, SIZE / Math.max(preview.width, preview.height))
-      proxy.width = Math.max(1, Math.round(preview.width * scale))
-      proxy.height = Math.max(1, Math.round(preview.height * scale))
-      proxy.getContext('2d').drawImage(preview, 0, 0, proxy.width, proxy.height)
+  // Small standalone proxy of the preview, built once per photo (not per edit).
+  const proxy = useMemo(() => {
+    if (!preview) return null
+    const c = document.createElement('canvas')
+    const scale = Math.min(1, SIZE / Math.max(preview.width, preview.height))
+    c.width = Math.max(1, Math.round(preview.width * scale))
+    c.height = Math.max(1, Math.round(preview.height * scale))
+    c.getContext('2d').drawImage(preview, 0, 0, c.width, c.height)
+    return c
+  }, [preview])
+  const lastRunRef = useRef(0)
 
+  // Live while dragging: throttled to ~12 updates/s (every edit re-renders the small proxy
+  // through the shared WebGL scratch canvas — a few ms), and settled 60 ms after release.
+  useEffect(() => {
+    if (!active || !proxy || !canvasRef.current) return
+    const wait = interacting ? Math.max(0, LIVE_INTERVAL - (performance.now() - lastRunRef.current)) : 60
+    const timer = setTimeout(() => {
+      lastRunRef.current = performance.now()
       // Rendered via the shared scratch canvas (see renderToCanvas) — never a new WebGL context.
       const readCanvas = renderToCanvas(document.createElement('canvas'), proxy, effectiveSettings(active), state.luts)
       const { data } = readCanvas.getContext('2d').getImageData(0, 0, readCanvas.width, readCanvas.height)
@@ -82,10 +91,13 @@ export default function Histogram() {
         b[data[i + 2]]++
       }
       if (canvasRef.current) drawHistogram(canvasRef.current, r, g, b)
-      setClip(clippingFromHistogram(r, g, b, data.length / 4))
-    }, 150)
+      setClip((prev) => {
+        const next = clippingFromHistogram(r, g, b, data.length / 4)
+        return prev.shadows === next.shadows && prev.highlights === next.highlights ? prev : next
+      })
+    }, wait)
     return () => clearTimeout(timer)
-  }, [active, preview, interacting, state.luts])
+  }, [active, proxy, interacting, state.luts])
 
   if (!active) return null
 

@@ -25,12 +25,12 @@ export async function ingestPhoto(blob, isRaw, id) {
   try {
     const { decodeAndDevelopRaw, targetStatsFromBlob, imageDataToBlob } = await import('../engine/rawPipeline')
     const target = embedded ? await targetStatsFromBlob(embedded) : null
-    const { imageData, params } = await decodeAndDevelopRaw(blob, { half: true, target })
+    const { imageData, params, asShotWB } = await decodeAndDevelopRaw(blob, { half: true, target })
     const bitmap = await createImageBitmap(imageData)
     const sourceBlob = await imageDataToBlob(imageData)
     const entry = await makeImageEntry(sourceBlob, id, bitmap)
     // Half-size decode for editing; report the real sensor resolution (export decodes full size).
-    return { ...entry, width: entry.width * 2, height: entry.height * 2, rawDevelop: params, rawSource: 'libraw' }
+    return { ...entry, width: entry.width * 2, height: entry.height * 2, rawDevelop: params, rawSource: 'libraw', wbAsShot: asShotWB || null }
   } catch (err) {
     console.warn('RAW decode failed — using the embedded preview instead.', err)
     if (!embedded) throw err

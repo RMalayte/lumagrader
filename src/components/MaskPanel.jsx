@@ -9,7 +9,7 @@ const ADJUSTMENTS = [
   { key: 'contrast', label: 'Contrast', min: -100, max: 100 },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100 },
   { key: 'temp', label: 'Temperature', min: -100, max: 100 },
-  { key: 'sharpen', label: 'Sharpen', min: 0, max: 100 },
+  { key: 'sharpen', label: 'Sharpness', min: -100, max: 100 }, // − softens (like LR)
   { key: 'denoise', label: 'Noise Reduction', min: 0, max: 100 },
 ]
 

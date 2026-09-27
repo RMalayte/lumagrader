@@ -13,6 +13,7 @@ import HSLPanel from './HSLPanel.jsx'
 import ColorGradePicker from './ColorGradePicker.jsx'
 import MaskPanel from './MaskPanel.jsx'
 import DetailPanel from './DetailPanel.jsx'
+import ColorPanel from './ColorPanel.jsx'
 
 const LIGHT_SLIDERS = [
   { key: 'exposure', label: 'Exposure', min: -5, max: 5, step: 0.05 }, // stops (EV), like Lightroom
@@ -22,14 +23,8 @@ const LIGHT_SLIDERS = [
   { key: 'whites', label: 'Whites', min: -100, max: 100 },
   { key: 'blacks', label: 'Blacks', min: -100, max: 100 },
 ]
-const COLOR_SLIDERS = [
-  { key: 'temp', label: 'Temperature', min: -100, max: 100 },
-  { key: 'tint', label: 'Tint', min: -100, max: 100 },
-  { key: 'saturation', label: 'Saturation', min: -100, max: 100 },
-  { key: 'vibrance', label: 'Vibrance', min: -100, max: 100 },
-]
 const EFFECT_SLIDERS = [
-  { key: 'vignette', label: 'Vignette', min: 0, max: 100 },
+  { key: 'vignette', label: 'Vignette', min: -100, max: 100 }, // LR: − darkens, + lightens
   { key: 'grain', label: 'Grain', min: 0, max: 100 },
 ]
 
@@ -39,7 +34,7 @@ function SliderGroup({ id, title, sliders }) {
   const defaults = defaultSettings()
   return (
     <Accordion title={title} id={id} panelId={id}>
-      {sliders.map(({ key, label, min, max, step }) => (
+      {sliders.map(({ key, label, min, max, step, bar }) => (
         <Slider
           key={key}
           label={label}
@@ -51,7 +46,9 @@ function SliderGroup({ id, title, sliders }) {
           onBegin={() => beginEdit(active.id)}
           onChange={(v) => liveUpdate(active.id, { [key]: v })}
           onCommit={() => commitEdit(active.id)}
-        />
+        >
+          {bar && <div className="hue-gradient-bar" style={{ background: bar }} aria-hidden="true" />}
+        </Slider>
       ))}
     </Accordion>
   )
@@ -89,7 +86,7 @@ const GROUPS = [
     panels: ['color', 'hsl', 'colorGrade'],
     render: () => (
       <>
-        <SliderGroup id="color" title="Color" sliders={COLOR_SLIDERS} />
+        <ColorPanel />
         <HSLPanel />
         <ColorGradePicker />
       </>

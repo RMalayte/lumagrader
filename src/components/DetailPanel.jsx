@@ -4,9 +4,9 @@ import Accordion from './Accordion.jsx'
 import Slider from './Slider.jsx'
 
 const SIMPLE_SLIDERS = [
-  { key: 'texture', label: 'Texture', min: 0, max: 100 },
-  { key: 'clarity', label: 'Clarity', min: 0, max: 100 },
-  { key: 'dehaze', label: 'Dehaze (approx.)', min: 0, max: 100 },
+  { key: 'texture', label: 'Texture', min: -100, max: 100 },
+  { key: 'clarity', label: 'Clarity', min: -100, max: 100 },
+  { key: 'dehaze', label: 'Dehaze (approx.)', min: -100, max: 100 },
 ]
 const SHARPEN_SLIDERS = [
   { key: 'sharpen', label: 'Amount', min: 0, max: 100 },

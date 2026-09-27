@@ -9,6 +9,8 @@
 //
 // Pure functions on typed arrays — runs inside workers/developWorker.js.
 
+import { applyLumaColorLook } from './rawLook'
+
 const W_R = 0.2126, W_G = 0.7152, W_B = 0.0722
 const LOG_FLOOR = -17
 const QUANTILES = Array.from({ length: 120 }, (_, i) => 0.2 + (i * (99.8 - 0.2)) / 119)
@@ -215,5 +217,7 @@ export function developRaw(data16, w, h, params) {
   toneAndColor(data16, w, h, p, lut, p.saturation, rgba)
   // Radius scales with resolution so preview (half size) and export (full size) match.
   reduceColorNoise(rgba, w, h, Math.max(1, Math.round(Math.max(w, h) / 1600)))
+  // v0.7.2: "Luma Color" base look (Lightroom-like default colour) on top of the camera match.
+  if (p.look !== 'camera') applyLumaColorLook(rgba)
   return { rgba, params: p }
 }

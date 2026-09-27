@@ -3,15 +3,16 @@ import { VERT_SRC, FRAG_SRC, BLUR_FRAG_SRC, COMBINE_FRAG_SRC, MASK_FRAG_SRC, DET
 import { buildRgbCurveLUTs } from '../curvePoints'
 import { getBrushCanvas } from '../brushMaskStore'
 import { getProfileBias } from '../colorProfiles'
+import { wbMatrixFor } from '../color'
 import { buildLocalLUT, buildGlobalLUT, isToneActive, isLocalToneActive, LOCAL_LUT_SIZE, GLOBAL_LUT_SIZE } from '../tone'
 import { getLocalBaseMap } from '../localBase'
 
 const HSL_ORDER = ['red', 'orange', 'yellow', 'green', 'aqua', 'blue', 'purple', 'magenta']
 const MAIN_UNIFORM_NAMES = [
   'u_image', 'u_curvePointsLUT', 'u_cubeLut', 'u_useCubeLut', 'u_useCurvePoints',
-  'u_localLUT', 'u_globalLUT', 'u_gfCoef', 'u_useTone', 'u_useLocal', 'u_exposureEV', 'u_saturate', 'u_curveStrength',
+  'u_localLUT', 'u_globalLUT', 'u_gfCoef', 'u_useTone', 'u_useLocal', 'u_exposureEV', 'u_sat', 'u_useWB', 'u_wbMatrix', 'u_curveStrength',
   'u_lutStrength', 'u_hslHue', 'u_hslSat', 'u_hslLum', 'u_hslActive', 'u_vibrance',
-  'u_tempTintColor', 'u_temp', 'u_tint', 'u_gradeColor', 'u_gradeIntensity',
+  'u_gradeColor', 'u_gradeIntensity',
   'u_grain', 'u_grainSeed', 'u_vignette', 'u_resolution', 'u_dehaze',
 ]
 
@@ -194,7 +195,6 @@ function setMainUniforms(state, s, luts, source, w, h) {
 
   const profile = getProfileBias(s.colorProfile)
   const effSaturation = s.saturation + (profile.saturation || 0)
-  const effTemp = (s.temp || 0) + (profile.temp || 0)
   const profileContrast = profile.contrast || 0
 
   // Tone tables are rebuilt only when a tone slider (or the profile's contrast) changes;
@@ -235,7 +235,14 @@ function setMainUniforms(state, s, luts, source, w, h) {
   gl.uniform1i(uniforms.u_useTone, toneOn ? 1 : 0)
   gl.uniform1i(uniforms.u_useLocal, localOn ? 1 : 0)
   gl.uniform1f(uniforms.u_exposureEV, s.exposure || 0)
-  gl.uniform1f(uniforms.u_saturate, Math.max(0, 1 + effSaturation / 100))
+  gl.uniform1f(uniforms.u_sat, Math.max(-1, effSaturation / 100))
+  // White balance (engine v3): Bradford adaptation matrix in linear light — see color.js.
+  const wb = wbMatrixFor(s, profile.temp || 0) // RAW Kelvin/Tint + relative Temp/Tint
+  gl.uniform1i(uniforms.u_useWB, wb ? 1 : 0)
+  if (wb) {
+    // GLSL mat3 is column-major: transpose our row-major matrix.
+    gl.uniformMatrix3fv(uniforms.u_wbMatrix, false, new Float32Array([wb[0], wb[3], wb[6], wb[1], wb[4], wb[7], wb[2], wb[5], wb[8]]))
+  }
   gl.uniform1f(uniforms.u_curveStrength, s.curve || 0)
   gl.uniform1f(uniforms.u_lutStrength, (s.lutStrength || 0) / 100)
 
@@ -255,16 +262,6 @@ function setMainUniforms(state, s, luts, source, w, h) {
   gl.uniform1i(uniforms.u_hslActive, hslActive ? 1 : 0)
   gl.uniform1f(uniforms.u_vibrance, (s.vibrance || 0) / 100)
 
-  const rTemp = effTemp > 0 ? effTemp * 1.4 : 0, bTemp = effTemp < 0 ? -effTemp * 1.4 : 0
-  const gTint = s.tint > 0 ? s.tint * 1.2 : 0, mTint = s.tint < 0 ? -s.tint * 1.2 : 0
-  gl.uniform3f(
-    uniforms.u_tempTintColor,
-    (128 + rTemp - bTemp) / 255,
-    (128 + gTint - mTint) / 255,
-    (128 + bTemp - rTemp + (mTint ? -mTint * 0.3 : 0)) / 255,
-  )
-  gl.uniform1f(uniforms.u_temp, effTemp || 0)
-  gl.uniform1f(uniforms.u_tint, s.tint || 0)
 
   const grade = s.colorGrade || { hex: '#000000', intensity: 0 }
   const [gr, gg, gb] = hexToRgb01(grade.hex)
@@ -299,9 +296,10 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   const sharpenActive = (s.sharpen || 0) > 0
   const denoiseActive = (s.noiseReduction || 0) > 0
   const colorNoiseActive = (s.colorNoiseReduction || 0) > 0
-  const clarityActive = (s.clarity || 0) > 0
-  const textureActive = (s.texture || 0) > 0
-  const dehazeActive = (s.dehaze || 0) > 0
+  // Texture / Clarity / Dehaze are bipolar since engine v3 (negative = soften / add haze).
+  const clarityActive = (s.clarity || 0) !== 0
+  const textureActive = (s.texture || 0) !== 0
+  const dehazeActive = (s.dehaze || 0) !== 0
   const masks = (s.masks || []).filter((m) => m.enabled !== false)
 
   if (!sharpenActive && !denoiseActive && !colorNoiseActive && !clarityActive && !textureActive && !dehazeActive && masks.length === 0) {
@@ -373,7 +371,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   function maskPass(srcTarget, dstTarget, mask) {
     const srcTex = srcTarget.texture
     const adj = mask.adjustments || {}
-    const sharpenAmt = (adj.sharpen || 0) / 100
+    const sharpenAmt = (adj.sharpen || 0) / 100 // −1..1: negative softens
     const denoiseAmt = (adj.denoise || 0) / 100
 
     // Sharpen and denoise share ONE blur pass (radius biased toward whichever wants more
@@ -381,10 +379,10 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     // 6 scratch buffers at once instead of 4. A shared blur is an approximation when both
     // are active together, but keeps the render-target budget sane.
     let blurredTex = null
-    if (sharpenAmt > 0 || denoiseAmt > 0) {
+    if (sharpenAmt !== 0 || denoiseAmt > 0) {
       const exclude = dstTarget ? [srcTarget, dstTarget] : [srcTarget]
       const [scratch1, scratch2] = [A, B, C, D].filter((t) => !exclude.includes(t))
-      const radius = 1.0 + Math.max(sharpenAmt * 2.0, denoiseAmt * 4.0)
+      const radius = 1.0 + Math.max(Math.abs(sharpenAmt) * (sharpenAmt < 0 ? 4.0 : 2.0), denoiseAmt * 4.0)
       blurPass(srcTex, scratch1, [1, 0], radius)
       blurPass(scratch1.texture, scratch2, [0, 1], radius)
       blurredTex = scratch2.texture
@@ -420,7 +418,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     gl.bindTexture(gl.TEXTURE_2D, blurredTex || state.curveTex)
     gl.uniform1i(state.maskUniforms.u_blurredForSharpen, 2)
     gl.uniform1i(state.maskUniforms.u_useDetailBlur, blurredTex ? 1 : 0)
-    gl.uniform1f(state.maskUniforms.u_sharpen, sharpenAmt * 1.5)
+    gl.uniform1f(state.maskUniforms.u_sharpen, sharpenAmt * (sharpenAmt < 0 ? 0.9 : 1.5))
     gl.uniform1f(state.maskUniforms.u_denoise, denoiseAmt * 0.8)
 
     gl.uniform1i(state.maskUniforms.u_invert, mask.invert ? 1 : 0)
@@ -439,9 +437,10 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   // settings). Each "blur" entry reuses the same blur+combine shape; mode 0 = unsharp-style
   // push-away-from-blur, mode 1 = blend-toward-blur.
   const passes = []
-  if (dehazeActive) passes.push({ kind: 'blur', radius: 20.0 + (s.dehaze / 100) * 30.0, amount: (s.dehaze / 100) * 0.6, mode: 0 })
-  if (textureActive) passes.push({ kind: 'blur', radius: 2.0 + (s.texture / 100) * 4.0, amount: (s.texture / 100) * 0.9, mode: 0 })
-  if (clarityActive) passes.push({ kind: 'blur', radius: 10.0 + (s.clarity / 100) * 20.0, amount: (s.clarity / 100) * 0.8, mode: 0 })
+  // Negative amounts blend toward the blur (softening) — same pass, opposite direction.
+  if (dehazeActive) passes.push({ kind: 'blur', radius: 20.0 + (Math.abs(s.dehaze) / 100) * 30.0, amount: (s.dehaze / 100) * (s.dehaze > 0 ? 0.6 : 0.35), mode: 0 })
+  if (textureActive) passes.push({ kind: 'blur', radius: 2.0 + (Math.abs(s.texture) / 100) * 4.0, amount: (s.texture / 100) * (s.texture > 0 ? 0.9 : 0.75), mode: 0 })
+  if (clarityActive) passes.push({ kind: 'blur', radius: 10.0 + (Math.abs(s.clarity) / 100) * 20.0, amount: (s.clarity / 100) * (s.clarity > 0 ? 0.8 : 0.6), mode: 0 })
   if (sharpenActive) {
     const radiusBase = s.sharpenRadius ?? 1.0
     const detailShrink = 1 - ((s.sharpenDetail ?? 25) / 100) * 0.5 // higher Detail -> smaller effective radius, finer texture
@@ -479,8 +478,16 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     const isLast = i === passes.length - 1
     if (pass.kind === 'blur') {
       const [scratch1, scratch2] = [A, B, C, D].filter((t) => t !== sourceTarget)
-      blurPass(sourceTarget.texture, scratch1, [1, 0], pass.radius)
-      blurPass(scratch1.texture, scratch2, [0, 1], pass.radius)
+      // Softening (negative amounts) shows the sparse 9-tap kernel as ghost copies at large
+      // radii, so it runs several smaller blurs instead (Gaussians compose: σ = √n · σᵢ).
+      const iterations = pass.amount < 0 ? 3 : 1
+      const r = pass.radius / Math.sqrt(iterations)
+      blurPass(sourceTarget.texture, scratch1, [1, 0], r)
+      blurPass(scratch1.texture, scratch2, [0, 1], r)
+      for (let k = 1; k < iterations; k++) {
+        blurPass(scratch2.texture, scratch1, [1, 0], r)
+        blurPass(scratch1.texture, scratch2, [0, 1], r)
+      }
       if (isLast) {
         combinePass(sourceTarget.texture, scratch2.texture, null, pass.amount, pass.mode)
       } else {
