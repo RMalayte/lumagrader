@@ -1,0 +1,20 @@
+LumaGrader by Rax — third-party software used for RAW decoding
+================================================================
+
+This folder contains a WebAssembly build of LibRaw, loaded only when a RAW file is opened.
+
+libraw-wasm 1.6.0 (JavaScript/WebAssembly bindings)
+  https://github.com/ybouane/LibRaw-Wasm — ISC License
+
+LibRaw (RAW decoding library)
+  https://www.libraw.org — Copyright (C) 2008-2024 LibRaw LLC
+  Dual-licensed: GNU Lesser General Public License v2.1 (LGPL-2.1) or
+  Common Development and Distribution License v1.0 (CDDL-1.0).
+  Source code: https://github.com/LibRaw/LibRaw
+
+Little CMS (colour management, linked into the build)
+  https://www.littlecms.com — MIT License
+
+LibRaw is used as an unmodified, separately loaded library (libraw.wasm). You may replace
+libraw.wasm / libraw.js / worker.js in this folder with your own build of the same
+libraw-wasm version; build instructions are in the libraw-wasm repository above.

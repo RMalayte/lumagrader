@@ -1,0 +1,12 @@
+node_modules/
+dist/
+
+# generated from node_modules/libraw-wasm by scripts/copy-libraw.mjs
+public/libraw/
+
+# local / OS files
+.env
+.env.*
+*.log
+.DS_Store
+Thumbs.db
