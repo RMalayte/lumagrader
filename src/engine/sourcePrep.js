@@ -41,8 +41,18 @@ export function correctedSource(source, s) {
   return canvas
 }
 
+// Last rotate/crop result per corrected image, so slider moves on a cropped photo don't
+// re-crop (and re-upload) the pixels every frame.
+const geometryCache = new WeakMap()
+
 /** The exact image the tone/colour engine renders: corrections + geometry. */
 export function prepareSource(source, s) {
   const corrected = correctedSource(source, s)
-  return s.geometry && !isGeometryDefault(s.geometry) ? applyGeometry(corrected, s.geometry) : corrected
+  if (!s.geometry || isGeometryDefault(s.geometry)) return corrected
+  const key = JSON.stringify(s.geometry)
+  const hit = geometryCache.get(corrected)
+  if (hit && hit.key === key) return hit.canvas
+  const canvas = applyGeometry(corrected, s.geometry)
+  geometryCache.set(corrected, { key, canvas })
+  return canvas
 }

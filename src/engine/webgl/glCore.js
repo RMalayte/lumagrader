@@ -40,7 +40,10 @@ export function ensureRenderTarget(gl, target, w, h) {
   const framebuffer = target.framebuffer || gl.createFramebuffer()
   gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
+  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
   gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+  // Incomplete (usually out of graphics memory) would otherwise render nothing, silently.
+  if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`Render target ${w}×${h} unavailable (framebuffer status 0x${status.toString(16)})`)
 
   target.texture = texture
   target.framebuffer = framebuffer

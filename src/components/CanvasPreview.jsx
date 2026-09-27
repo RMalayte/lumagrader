@@ -2,6 +2,8 @@ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from
 import { useProject, visibleImages } from '../store/ProjectContext'
 import { renderImage } from '../engine/pipeline'
 import { releaseCanvas, gpuMaxDimension } from '../engine/webgl/renderer'
+import { recordGpuError, setPreviewMode } from '../engine/gpuDiagnostics'
+import { publishPreview } from '../engine/previewBus'
 import { useFeedback } from '../store/FeedbackContext'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { effectiveSettings } from '../engine/panels'
@@ -95,6 +97,7 @@ export default function CanvasPreview() {
   const { toast } = useFeedback()
   const recoverFromGpuFailure = useCallback((reason) => {
     console.warn('Preview render failed — recovering with a fresh canvas:', reason)
+    recordGpuError(reason, document.hidden ? 'lost in background' : `preview failure ${failuresRef.current + 1}`)
     if (document.hidden) {
       // Lost while in the background (Android frees GPU memory): swap the canvas on return.
       const onVisible = () => {
@@ -108,9 +111,11 @@ export default function CanvasPreview() {
     failuresRef.current += 1
     if (failuresRef.current === 1) {
       setGpuTrouble(true)
+      setPreviewMode('GPU (lighter preview)')
       toast('Your device ran low on graphics memory — showing a lighter preview. Export still works.', { type: 'error', duration: 7000 })
     } else if (failuresRef.current === 2) {
       setForceCanvas(true)
+      setPreviewMode('compatibility')
       toast('Graphics unavailable — switched to compatibility mode. Editing works (a bit slower); masks are off until you reload.', { type: 'error', duration: 9000 })
     } else if (failuresRef.current > 4) {
       return // give up remounting; compatibility mode should never get here
@@ -191,7 +196,9 @@ export default function CanvasPreview() {
     const srcW = source.naturalWidth ?? source.width
     const raf = requestAnimationFrame(() => {
       const overlayId = state.maskOverlay && state.openAccordionId === 'masks' ? state.selectedMaskId : null
-      const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : { ...effectiveSettings(active), _maskOverlayId: overlayId }
+      // While dragging a non-Detail slider, sharpening/noise reduction wait for the release.
+      const fast = !!dragProxy && state.openAccordionId !== 'detail'
+      const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : { ...effectiveSettings(active), _maskOverlayId: overlayId, _fastPreview: fast }
       try {
         renderImage(canvas, source, s, state.luts, { forceCanvas })
       } catch (err) {
@@ -199,6 +206,8 @@ export default function CanvasPreview() {
         return
       }
       setCanvasSize((prev) => (prev.w === canvas.width && prev.h === canvas.height && prev.srcW === srcW ? prev : { w: canvas.width, h: canvas.height, srcW }))
+      // Before view and the red mask overlay aren't the edit — don't feed them to the histogram.
+      if (!holdBefore && !overlayId) publishPreview(canvas, { imageId: active.id, dragging: !!dragProxy })
       // Clipping overlay reads pixels back — skip it mid-drag, redo on release.
       if (clipCanvasRef.current && !dragProxy) drawClippingOverlay(canvas, clipCanvasRef.current, state.clipping)
     })

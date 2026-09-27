@@ -184,8 +184,15 @@ function setMainUniforms(state, s, luts, source, w, h) {
 
   gl.activeTexture(gl.TEXTURE0)
   gl.bindTexture(gl.TEXTURE_2D, imageTex)
-  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
+  // Upload the photo only when it changed: while a slider moves the pixels stay the same, and
+  // re-uploading ~7 MB per frame was the main per-frame cost. Sources are never drawn into
+  // after they are handed to the renderer (new edits → new canvas), so identity + size is enough.
+  const w0 = source.naturalWidth ?? source.width, h0 = source.naturalHeight ?? source.height
+  if (state.uploaded?.source !== source || state.uploaded.w !== w0 || state.uploaded.h !== h0) {
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
+    state.uploaded = { source, w: w0, h: h0 }
+  }
   gl.uniform1i(uniforms.u_image, 0)
 
   // RGB + R/G/B point curves, pre-composed into one RGBA LUT (channel c reads component c).
@@ -324,9 +331,12 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   bindQuad(gl, state.program, state.quad)
   setMainUniforms(state, s, luts, source, w, h)
 
-  const sharpenActive = (s.sharpen || 0) > 0
-  const denoiseActive = (s.noiseReduction || 0) > 0
-  const colorNoiseActive = (s.colorNoiseReduction || 0) > 0
+  // `_fastPreview` (a slider is being dragged on the small proxy): pixel-level sharpening and
+  // noise reduction are invisible at that size, so they're skipped until the slider is released.
+  const fast = !!s._fastPreview
+  const sharpenActive = !fast && (s.sharpen || 0) > 0
+  const denoiseActive = !fast && (s.noiseReduction || 0) > 0
+  const colorNoiseActive = !fast && (s.colorNoiseReduction || 0) > 0
   // Texture / Clarity / Dehaze are bipolar (negative = soften / add haze).
   const clarityActive = (s.clarity || 0) !== 0
   const textureActive = (s.texture || 0) !== 0

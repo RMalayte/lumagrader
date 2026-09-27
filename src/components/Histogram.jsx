@@ -1,11 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
-import { usePreview, useInteracting } from '../hooks/useImageSources'
-import { renderToCanvas } from '../engine/pipeline'
-import { effectiveSettings } from '../engine/panels'
+import { subscribePreview } from '../engine/previewBus'
 import { clippingFromHistogram, CLIP_THRESHOLD } from '../engine/clipping'
 
-// Proxy resolution. Big enough that small blown highlights (sky, speculars) aren't averaged
+// Read resolution. Big enough that small blown highlights (sky, speculars) aren't averaged
 // away by the downscale, small enough to stay cheap on every edit.
 const SIZE = 480
 const LIVE_INTERVAL = 80 // ms between histogram updates while a slider is dragged
@@ -58,32 +56,23 @@ export default function Histogram() {
   const canvasRef = useRef(null)
   const [clip, setClip] = useState({ shadows: 0, highlights: 0 })
   const active = state.images.find((im) => im.id === state.activeId)
-  const preview = usePreview(active)
-  const interacting = useInteracting()
-
-  // Small standalone proxy of the preview, built once per photo (not per edit).
-  const proxy = useMemo(() => {
-    if (!preview) return null
-    const c = document.createElement('canvas')
-    const scale = Math.min(1, SIZE / Math.max(preview.width, preview.height))
-    c.width = Math.max(1, Math.round(preview.width * scale))
-    c.height = Math.max(1, Math.round(preview.height * scale))
-    c.getContext('2d').drawImage(preview, 0, 0, c.width, c.height)
-    return c
-  }, [preview])
+  const readRef = useRef(null)
   const lastRunRef = useRef(0)
+  const timerRef = useRef(0)
 
-  // Live while dragging: throttled to ~12 updates/s (every edit re-renders the small proxy
-  // through the shared WebGL scratch canvas — a few ms), and settled 60 ms after release.
+  // Reads the preview the user is looking at (already rendered) — no second render. While a
+  // slider is dragged, updates are throttled to ~12/s; the settled render updates right away.
   useEffect(() => {
-    if (!active || !proxy || !canvasRef.current) return
-    const wait = interacting ? Math.max(0, LIVE_INTERVAL - (performance.now() - lastRunRef.current)) : 60
-    const timer = setTimeout(() => {
+    function compute(source) {
       lastRunRef.current = performance.now()
-      // Rendered via the shared scratch canvas (see renderToCanvas) — never a new WebGL context.
-      const readCanvas = renderToCanvas(document.createElement('canvas'), proxy, effectiveSettings(active), state.luts)
-      const { data } = readCanvas.getContext('2d').getImageData(0, 0, readCanvas.width, readCanvas.height)
-
+      const scale = Math.min(1, SIZE / Math.max(source.width, source.height))
+      const w = Math.max(1, Math.round(source.width * scale)), h = Math.max(1, Math.round(source.height * scale))
+      let c = readRef.current
+      if (!c) c = readRef.current = document.createElement('canvas')
+      if (c.width !== w || c.height !== h) { c.width = w; c.height = h }
+      const ctx = c.getContext('2d', { willReadFrequently: true })
+      ctx.drawImage(source, 0, 0, w, h)
+      const { data } = ctx.getImageData(0, 0, w, h)
       const r = new Uint32Array(256), g = new Uint32Array(256), b = new Uint32Array(256)
       for (let i = 0; i < data.length; i += 4) {
         r[data[i]]++
@@ -95,9 +84,17 @@ export default function Histogram() {
         const next = clippingFromHistogram(r, g, b, data.length / 4)
         return prev.shadows === next.shadows && prev.highlights === next.highlights ? prev : next
       })
-    }, wait)
-    return () => clearTimeout(timer)
-  }, [active, proxy, interacting, state.luts])
+    }
+    const unsubscribe = subscribePreview((source, meta) => {
+      clearTimeout(timerRef.current)
+      const wait = meta.dragging ? Math.max(0, LIVE_INTERVAL - (performance.now() - lastRunRef.current)) : 0
+      timerRef.current = setTimeout(() => compute(source), wait)
+    })
+    return () => {
+      unsubscribe()
+      clearTimeout(timerRef.current)
+    }
+  }, [])
 
   if (!active) return null
 
