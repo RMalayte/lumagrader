@@ -1,8 +1,8 @@
-// Engine v2 — Tone (Lightroom-style Exposure / Contrast / Highlights / Shadows / Whites / Blacks)
+// Tone (Lightroom-style Exposure / Contrast / Highlights / Shadows / Whites / Blacks)
 //
 //  1. Pixels are converted to LINEAR light; everything below works in stops (EV = log2 light).
 //  2. Exposure: a gain in stops (±5), like Lightroom.
-//  3. Highlights / Shadows (LOCAL, v2.1): gains in stops chosen from the pixel's edge-aware
+//  3. Highlights / Shadows (LOCAL): gains in stops chosen from the pixel's edge-aware
 //     local brightness ("base", see localBase.js) — not from the pixel alone — so regions get
 //     brighter/darker while local contrast and small bright/dark details survive.
 //  4. Whites / Blacks (global): gains in stops near the white / black ends (set the end points).
@@ -23,17 +23,16 @@ const MID_GRAY_P = 0.46 // sRGB-encoded 18% gray
 
 // Zones: gain = stops at ±100; weight = logistic over EV (center, width).
 // Local zones are applied to the smooth local base, global ones to the pixel.
-// Calibrated against Rax's Lightroom comparison (see README/handoff): Lightroom's Highlights
+// Calibrated against a Lightroom comparison: Lightroom's Highlights
 // and Shadows are "bell-shaped" — they move the upper-mids / lower-mids but leave the very
 // brightest whites and deepest blacks nearly alone (those belong to Whites / Blacks):
 //   - `floor` (dark zones): fades the effect out toward pure black.
 //   - `ceil` (bright zones): fades it out toward white, but `ceil.overWhite` brings it back
 //     above white so over-exposed areas can still be recovered.
-// Fitted (v0.5.1) to Rax's side-by-side: same photo, Contrast +30 / Highlights −60 / Shadows +40
-// in Lightroom vs LumaGrader, matching tone percentiles + fine-detail energy, under a hard
+// Fitted to a side-by-side (same photo, Contrast +30 / Highlights −60 / Shadows +40 in
+// Lightroom vs LumaGrader), matching tone percentiles + fine-detail energy, under a hard
 // constraint that the curve stays monotonic at every slider value even where base = pixel.
-// Luminance percentiles (1/10/50/90/99%): Lightroom 20/43/87/206/245, fitted 21/43/86/206/245
-// (v0.5.0 was 28/49/88/195/223). One photo only — re-check with more comparisons.
+// One photo only — re-check with more comparisons.
 export const LOCAL_ZONES = {
   shadows: { gain: 1.26, center: -3.49, width: 0.77, dark: true, floor: { center: -4.68, width: 0.36 } },
   highlights: { gain: 0.44, center: -1.83, width: 0.66, dark: false, ceil: { center: -0.22, width: 0.1, depth: 0.85, overWhite: 0.15 } },

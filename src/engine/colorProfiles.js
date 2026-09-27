@@ -19,8 +19,7 @@ export const COLOR_PROFILES = {
 
 export const COLOR_PROFILE_NAMES = Object.keys(COLOR_PROFILES)
 
-// Profiles were named "Adobe …" before v0.7.2 (renamed: Adobe is a trademark and these are
-// our own approximations). Old projects/presets are mapped by migrateSettings / here.
+// Older projects/presets used "Adobe …" names; they are mapped to the Luma names here.
 export const LEGACY_PROFILE_NAMES = Object.fromEntries(COLOR_PROFILE_NAMES.map((n) => [n.replace('Luma ', 'Adobe '), n]))
 export const canonicalProfile = (name) => (COLOR_PROFILES[name] ? name : LEGACY_PROFILE_NAMES[name] || 'Luma Color')
 

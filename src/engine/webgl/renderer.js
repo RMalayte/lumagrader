@@ -24,6 +24,7 @@ const stateMap = new WeakMap()
 export function releaseCanvas(canvas) {
   const state = stateMap.get(canvas)
   if (!state) return
+  canvas._released = true // our own loseContext() below must not look like a GPU failure
   state.gl.getExtension('WEBGL_lose_context')?.loseContext()
   stateMap.delete(canvas)
 }
@@ -35,12 +36,31 @@ function bindQuad(gl, program, quad) {
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0)
 }
 
+// Largest image side this GPU can render in one piece (texture, renderbuffer and viewport
+// limits). Phones are often 4096–8192; above it WebGL fails and the canvas stays blank.
+let gpuMax = null
+export function gpuMaxDimension() {
+  if (gpuMax) return gpuMax
+  try {
+    const gl = document.createElement('canvas').getContext('webgl2')
+    if (!gl) return (gpuMax = 16384) // no WebGL2 → Canvas 2D path, no GPU limit
+    const vp = gl.getParameter(gl.MAX_VIEWPORT_DIMS)
+    gpuMax = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), vp[0], vp[1])
+    gl.getExtension('WEBGL_lose_context')?.loseContext()
+  } catch {
+    gpuMax = 4096
+  }
+  return gpuMax
+}
+
 function getState(canvas) {
   let state = stateMap.get(canvas)
-  if (state) return state
+  if (state && !state.gl.isContextLost()) return state
+  if (state) stateMap.delete(canvas) // context was lost (GPU memory / driver reset)
 
   const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true })
   if (!gl) throw new Error('WebGL2 not supported in this browser')
+  if (gl.isContextLost()) throw new Error('WebGL context lost')
 
   const program = createProgram(gl, VERT_SRC, FRAG_SRC)
   const blurProgram = createProgram(gl, VERT_SRC, BLUR_FRAG_SRC)
@@ -67,7 +87,7 @@ function getState(canvas) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]))
 
-  // Engine v2 tone tables (R16F — filterable in WebGL2 without extensions):
+  // Tone tables (R16F — filterable in WebGL2 without extensions):
   //   localTex  (unit 3): base EV → Highlights/Shadows gain      globalTex (unit 4): EV → out ÷ 2^EV
   //   gfTex     (unit 5): guided-filter (A, B) map for the edge-aware local base (RG16F)
   const makeFloatTex = (internal, format, data, w = 1) => {
@@ -231,7 +251,7 @@ function setMainUniforms(state, s, luts, source, w, h) {
   gl.uniform1i(uniforms.u_useLocal, localOn ? 1 : 0)
   gl.uniform1f(uniforms.u_exposureEV, s.exposure || 0)
   gl.uniform1f(uniforms.u_sat, Math.max(-1, effSaturation / 100))
-  // White balance (engine v3): Bradford adaptation matrix in linear light — see color.js.
+  // White balance: Bradford adaptation matrix in linear light — see color.js.
   const wb = wbMatrixFor(s, profile.temp || 0) // RAW Kelvin/Tint + relative Temp/Tint
   gl.uniform1i(uniforms.u_useWB, wb ? 1 : 0)
   if (wb) {
@@ -258,7 +278,7 @@ function setMainUniforms(state, s, luts, source, w, h) {
   gl.uniform1f(uniforms.u_vibrance, (s.vibrance || 0) / 100)
 
 
-  // Color Grading (engine v4): 3 wheels + global in Oklab — see color.js.
+  // Color Grading: 3 wheels + global in Oklab — see color.js.
   const gradeOn = isGradeActive(s.colorGrade)
   gl.uniform1i(uniforms.u_gradeActive, gradeOn ? 1 : 0)
   if (gradeOn) {
@@ -285,6 +305,8 @@ function setMainUniforms(state, s, luts, source, w, h) {
 export function renderTonalWebGL(canvas, source, s, luts) {
   const w = source.naturalWidth ?? source.width
   const h = source.naturalHeight ?? source.height
+  const max = gpuMaxDimension()
+  if (w > max || h > max) throw new Error(`Image ${w}×${h} exceeds this GPU's ${max}px limit`)
   canvas.width = w
   canvas.height = h
 
@@ -300,7 +322,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   const sharpenActive = (s.sharpen || 0) > 0
   const denoiseActive = (s.noiseReduction || 0) > 0
   const colorNoiseActive = (s.colorNoiseReduction || 0) > 0
-  // Texture / Clarity / Dehaze are bipolar since engine v3 (negative = soften / add haze).
+  // Texture / Clarity / Dehaze are bipolar (negative = soften / add haze).
   const clarityActive = (s.clarity || 0) !== 0
   const textureActive = (s.texture || 0) !== 0
   const dehazeActive = (s.dehaze || 0) !== 0
@@ -309,6 +331,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   if (!sharpenActive && !denoiseActive && !colorNoiseActive && !clarityActive && !textureActive && !dehazeActive && masks.length === 0) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+    if (gl.isContextLost()) throw new Error('WebGL context lost while rendering (out of graphics memory?)')
     return
   }
 
@@ -443,7 +466,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   // settings). Each "blur" entry reuses the same blur+combine shape; mode 0 = unsharp-style
   // push-away-from-blur, mode 1 = blend-toward-blur.
   const passes = []
-  // Presence (v0.9): luminance-only (no colour shifts), radii in "preview pixels" (1600 px long
+  // Presence: luminance-only (no colour shifts), radii in "preview pixels" (1600 px long
   // side) and blurred at that scale, so the preview and a full-size export look the same.
   // Negative amounts soften (move toward the blur) / add haze.
   if (dehazeActive) passes.push({ kind: 'blur', radius: 40.0, amount: s.dehaze / 100, mode: 4 })
@@ -518,4 +541,5 @@ export function renderTonalWebGL(canvas, source, s, luts) {
       if (!isLast) sourceTarget = dest
     }
   })
+  if (gl.isContextLost()) throw new Error('WebGL context lost while rendering (out of graphics memory?)')
 }

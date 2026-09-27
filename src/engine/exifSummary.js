@@ -1,8 +1,7 @@
 import exifr from 'exifr'
 
 // Camera settings summary for the Photo Info panel. exifr reads only the metadata segments
-// it needs (works for JPEG and TIFF-based RAW) — the old JPEG path converted the WHOLE file
-// to a data URL every time the active photo changed. Loaded lazily (dynamic import).
+// it needs (works for JPEG and TIFF-based RAW), never the whole file. Loaded lazily.
 
 function formatExposure(seconds) {
   if (!seconds) return null

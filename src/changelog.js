@@ -1,6 +1,28 @@
-// User-facing release notes — newest first. Shown in the "What's new" popup after an update
-// and in About. Keep items short and written for photographers, not developers.
+// User-facing release notes — newest first, shown in About.
+// Keep items short and written for photographers, not developers.
 export const CHANGELOG = [
+  {
+    version: '0.9.3',
+    date: '2026-09-27',
+    title: 'No more update popup',
+    items: ['The "What\'s new" popup no longer appears after an update. Release notes are still in About.'],
+  },
+  {
+    version: '0.9.2',
+    date: '2026-09-27',
+    title: 'Maintenance',
+    items: ['Behind-the-scenes cleanup. Your photos and edits look exactly the same.'],
+  },
+  {
+    version: '0.9.1',
+    date: '2026-09-27',
+    title: 'Phone fixes & support',
+    items: [
+      'Fixed: on some phones the photo went blank after zooming in (the graphics chip ran out of memory). The app now stays within the phone\'s limits and recovers by itself if it happens.',
+      'Exports on phones automatically fit what the device can handle.',
+      'You can now support LumaGrader on Ko-fi (About → Support).',
+    ],
+  },
   {
     version: '0.9.0',
     date: '2026-09-27',
@@ -71,12 +93,3 @@ export const CHANGELOG = [
   },
 ]
 
-/** Compares dotted versions: negative if a < b. */
-export function compareVersions(a, b) {
-  const pa = String(a).split('.').map(Number), pb = String(b).split('.').map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] || 0) - (pb[i] || 0)
-    if (d) return d
-  }
-  return 0
-}

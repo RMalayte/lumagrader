@@ -1,5 +1,5 @@
 import { asShotFromLibRaw } from './color'
-// Real RAW decoding (v0.6): LibRaw (WebAssembly, public/libraw/) decodes the sensor data to
+// Real RAW decoding: LibRaw (WebAssembly, public/libraw/) decodes the sensor data to
 // linear 16-bit RGB, then workers/developWorker.js "develops" it into the 8-bit image the
 // editor starts from (see rawDevelop.js). Everything runs off the main thread.
 //

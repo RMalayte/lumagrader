@@ -88,7 +88,7 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
   // --- Light ---------------------------------------------------------------------------
   const ev = r.num('Exposure2012') ?? r.num('Exposure')
   if (ev !== null) {
-    // Both apps use stops (EV, ±5) since engine v2 — a direct 1:1 mapping.
+    // Both apps use stops (EV, ±5) — a direct 1:1 mapping.
     s.exposure = Math.round(clamp(ev, -5, 5) * 100) / 100
     applied.push('Exposure')
   }
@@ -148,7 +148,7 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
   // --- Effects -------------------------------------------------------------------------
   const vig = r.num('PostCropVignetteAmount')
   if (vig !== null) {
-    set('vignette', clamp(vig, -100, 100), 'Vignette') // same sign convention since engine v3
+    set('vignette', clamp(vig, -100, 100), 'Vignette') // same sign convention as Lightroom
   }
   direct('PostCropVignetteMidpoint', 'vignetteMidpoint', 'Vignette midpoint', 0, 100)
   direct('PostCropVignetteRoundness', 'vignetteRoundness', 'Vignette roundness', -100, 100)

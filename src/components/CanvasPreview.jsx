@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import { renderImage } from '../engine/pipeline'
-import { releaseCanvas } from '../engine/webgl/renderer'
+import { releaseCanvas, gpuMaxDimension } from '../engine/webgl/renderer'
+import { useFeedback } from '../store/FeedbackContext'
+import { useMediaQuery } from '../hooks/useMediaQuery'
 import { effectiveSettings } from '../engine/panels'
 import { defaultSettings } from '../engine/defaults'
 import { drawClippingOverlay } from '../engine/clipping'
@@ -78,10 +80,25 @@ export default function CanvasPreview() {
   const canvasRef = useRef(null)
   // The preview canvas unmounts for Before/After and Crop; release its WebGL context then,
   // so repeated toggling never piles up contexts (browsers cap them at ~16).
+  // If the GPU gives up (too large / out of graphics memory — mostly phones at 1:1 zoom), the
+  // canvas is stuck with a dead WebGL context and stays blank. Recover by mounting a fresh
+  // canvas and capping the resolution used for zoom from then on.
+  const [gpuTrouble, setGpuTrouble] = useState(false)
+  const [canvasKey, setCanvasKey] = useState(0)
+  const { toast } = useFeedback()
+  const recoverFromGpuFailure = useCallback((reason) => {
+    console.warn('Preview render failed — recovering with a fresh canvas:', reason)
+    setGpuTrouble((was) => {
+      if (!was) toast('Your device ran out of graphics memory at full size — showing a lighter preview. Export still works.', { type: 'error', duration: 7000 })
+      return true
+    })
+    setCanvasKey((k) => k + 1)
+  }, [toast])
   const setCanvasEl = useCallback((el) => {
     if (!el && canvasRef.current) releaseCanvas(canvasRef.current)
     canvasRef.current = el
-  }, [])
+    if (el) el.addEventListener('webglcontextlost', () => { if (!el._released) recoverFromGpuFailure('webglcontextlost') }, { once: true })
+  }, [recoverFromGpuFailure])
   const clipCanvasRef = useRef(null)
   const areaRef = useRef(null)
   const stageRef = useRef(null)
@@ -113,7 +130,11 @@ export default function CanvasPreview() {
   const previewOutW = previewW * outPerSrc
   const fullOutW = (active?.width || 1) * outPerSrc
   const wantFullRes = !!active && active.width > previewW * 1.01 && fitW > 0 && fitW * zoom * dpr > previewOutW * 1.05
-  const fullImage = useFullImage(active, wantFullRes)
+  // Full-size zoom is capped to what the GPU can take (and 4096 px on phones/tablets; 2048 px
+  // after a GPU failure) — beyond that the canvas would stay blank.
+  const coarse = useMediaQuery('(pointer: coarse)')
+  const fullCap = gpuTrouble ? 2048 : Math.min(gpuMaxDimension(), coarse ? 4096 : Infinity)
+  const fullImage = useFullImage(active, wantFullRes, fullCap)
   const oneToOneZoom = fitW > 0 ? fullOutW / (fitW * dpr) : 1
   const maxZoom = Math.max(FIT_MAX_ZOOM, oneToOneZoom)
   const pct = fitW > 0 && fullOutW > 0 ? Math.round(((fitW * zoom * dpr) / fullOutW) * 100) : 100
@@ -139,13 +160,18 @@ export default function CanvasPreview() {
     const srcW = source.naturalWidth ?? source.width
     const raf = requestAnimationFrame(() => {
       const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : effectiveSettings(active)
-      renderImage(canvas, source, s, state.luts)
+      try {
+        renderImage(canvas, source, s, state.luts)
+      } catch (err) {
+        recoverFromGpuFailure(err)
+        return
+      }
       setCanvasSize((prev) => (prev.w === canvas.width && prev.h === canvas.height && prev.srcW === srcW ? prev : { w: canvas.width, h: canvas.height, srcW }))
       // Clipping overlay reads pixels back — skip it mid-drag, redo on release.
       if (clipCanvasRef.current && !dragProxy) drawClippingOverlay(canvas, clipCanvasRef.current, state.clipping)
     })
     return () => cancelAnimationFrame(raf)
-  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore])
+  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, recoverFromGpuFailure])
 
   // Track the stage's real size. A ResizeObserver (not window resize) is needed because the
   // stage also shrinks when the mobile tool sheet opens or the header wraps.
@@ -471,7 +497,7 @@ export default function CanvasPreview() {
               <CompareSlider active={active} luts={state.luts} />
             ) : (
               <div className="canvas-mask-wrap" style={displaySize}>
-                <canvas ref={setCanvasEl} style={displaySize} onClick={pickColor} role="img" aria-label={`Edited preview of ${active.name}`} />
+                <canvas key={canvasKey} ref={setCanvasEl} style={displaySize} onClick={pickColor} role="img" aria-label={`Edited preview of ${active.name}`} />
                 <canvas ref={clipCanvasRef} className="clip-overlay" hidden={!showClipping} aria-hidden="true" />
                 <MaskCanvasOverlay active={active} />
               </div>

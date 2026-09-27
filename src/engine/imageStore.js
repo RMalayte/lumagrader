@@ -1,17 +1,11 @@
-// Memory-aware image handling (v0.4).
-//
-// Before: every photo kept a fully decoded full-size <img> (a 24 MP photo ≈ 96 MB of pixels)
-// plus a 1600px preview canvas (≈ 7 MB), and the filmstrip showed the full-size image too —
-// enough to crash a phone tab after a couple dozen photos.
-//
-// Now each photo only keeps:
+// Memory-aware image handling. Keeping every photo fully decoded (24 MP ≈ 96 MB of pixels)
+// crashes a phone tab after a couple dozen photos, so each photo only keeps:
 //   - sourceBlob: the file itself (JPEG/PNG) or the upright RAW preview JPEG. File-backed
 //                 blobs cost almost nothing until decoded.
 //   - thumbUrl:   a ~160px JPEG for the filmstrip.
 //   - width/height of the source.
 // Sources are decoded with createImageBitmap(blob) — NOT <img src=blob:…>. Loading through an
-// <img> made Chrome keep each file's encoded bytes in its memory cache for as long as the URL
-// lived (measured: +1 file size per photo, ~7.5 MB each for 24 MP JPEGs).
+// <img> makes Chrome keep each file's encoded bytes in memory for as long as the URL lives.
 // Decoded pixels live in small LRU caches: 1600px previews for the few most recent photos,
 // and at most ONE full-size image (for 1:1 zoom and export).
 
@@ -149,14 +143,34 @@ export function getDragProxy(id) {
  * Full-size decoded image (only one kept at a time — they're huge). Evicted bitmaps are left
  * to garbage collection rather than close()d, since a render may still be using one.
  */
-export function getFullImage(image) {
-  let p = lruGet(fulls, image.id)
+export function getFullImage(image, maxDim = Infinity) {
+  const key = Number.isFinite(maxDim) ? `${image.id}@${maxDim}` : image.id
+  let p = lruGet(fulls, key)
   if (!p) {
-    p = image.rawDevelop ? decodeFullRaw(image) : decodeBlob(image.sourceBlob).then(toUprightCanvas)
-    p.catch(() => fulls.delete(image.id))
-    lruSet(fulls, image.id, p, FULL_CACHE)
+    p = loadFull(image, maxDim)
+    p.catch(() => fulls.delete(key))
+    lruSet(fulls, key, p, FULL_CACHE)
   }
   return p
+}
+
+/**
+ * Full-size pixels, optionally capped to `maxDim` on the long side (phones: GPU texture and
+ * memory limits). A capped RAW uses the half-size develop instead of a full LibRaw decode.
+ */
+async function loadFull(image, maxDim) {
+  const capped = Number.isFinite(maxDim) && Math.max(image.width, image.height) > maxDim
+  if (image.rawDevelop && !capped) return decodeFullRaw(image)
+  const src = toUprightCanvas(await decodeBlob(image.sourceBlob))
+  const sw = src.width, sh = src.height
+  if (!Number.isFinite(maxDim) || Math.max(sw, sh) <= maxDim) {
+    if (capped) src.reducedSize = true // e.g. a RAW shown from its half-size develop
+    return src
+  }
+  const out = scaledCanvas(src, maxDim)
+  src.width = src.height = 0 // free the large copy right away
+  out.reducedSize = true
+  return out
 }
 
 /**
@@ -181,7 +195,7 @@ export function releaseImages(images, { revokeUrls = false } = {}) {
     previews.delete(im.id)
     resolvedPreviews.delete(im.id)
     drags.delete(im.id)
-    fulls.delete(im.id)
+    for (const k of [...fulls.keys()]) if (k === im.id || k.startsWith(`${im.id}@`)) fulls.delete(k)
     if (revokeUrls && im.thumbUrl?.startsWith('blob:')) URL.revokeObjectURL(im.thumbUrl)
   }
 }

@@ -1,4 +1,4 @@
-// Engine v3 — Color (Phase 2). Lightroom-like White Balance, Vibrance/Saturation and HSL.
+// Color: Lightroom-like White Balance, Vibrance/Saturation and HSL.
 // The same math runs in the WebGL shader (webgl/shaders.js) and in the Canvas 2D fallback
 // (pipeline.js), which calls the JS functions below per pixel.
 //
@@ -206,10 +206,10 @@ export function tempTintToXY(kelvin, tint) {
 // scenes a little high in Kelvin. Displayed/stored Kelvin is put on Lightroom's scale with a
 // correction that is zero at D65 and grows toward warm light (in mired, 1e6/K):
 //   mired_LR = mired + LR_MIRED_SLOPE · (mired − mired_D65)
-// Fitted to Rax's Canon RAW (ours 5106 K, Lightroom 4900 K). One data point — refine later.
+// Fitted to one Canon RAW (5106 K here vs 4900 K in Lightroom). One data point — refine later.
 const LR_MIRED_SLOPE = 0.198
 const D65_MIRED = 1e6 / 6504
-// Same idea for Tint (Rax's Canon RAW: ours +3, Lightroom +6 at ~4900 K): an offset that is
+// Same idea for Tint (same RAW: +3 here vs +6 in Lightroom at ~4900 K): an offset that is
 // zero at D65 and proportional to the mired distance from it.
 const LR_TINT_PER_MIRED = 3 / (1e6 / 5106 - 1e6 / 6504)
 /** Physical tint at physical CCT k → Lightroom-scale tint. */
@@ -399,7 +399,7 @@ export const defaultColorGrade = () => ({
   blending: 50,
   balance: 0,
 })
-// Calibrated (v0.8.1) to Rax's Lightroom comparison (Shadows 200°/40, Highlights 40°/40):
+// Calibrated to a Lightroom comparison (Shadows 200°/40, Highlights 40°/40):
 // Lightroom's offset peaks at ≈0.025 Oklab chroma for Saturation 40, highlight Luminance +40
 // lifts ≈0.028 L; its shadow range fades out below L≈0.3 and reaches up to L≈0.58, the
 // highlight range starts at L≈0.6.
@@ -496,7 +496,7 @@ export function applyGrade(r, g, b, U) {
   return [enc(Math.max(0, R)), enc(Math.max(0, G)), enc(Math.max(0, Bl))]
 }
 
-// ---- Grain (v0.8.1) -----------------------------------------------------------------------
+// ---- Grain -----------------------------------------------------------------------------
 // Film-like, monochrome, fixed to the IMAGE (not to screen pixels), so the preview and a
 // full-size export show the same grain; deterministic (no flicker between renders); weaker in
 // deep shadows and bright highlights. Integer hash → identical in JS and GLSL.
@@ -533,7 +533,7 @@ export function grainCells(w, h, size = 25) {
   return [n * (w / m), n * (h / m)]
 }
 
-// ---- Post-crop vignette (v0.9) --------------------------------------------------------------
+// ---- Post-crop vignette --------------------------------------------------------------------
 // Lightroom-style: Amount (− darker / + lighter corners), Midpoint (how far in it reaches),
 // Roundness (−100 rounded rectangle … 0 ellipse fitting the frame … +100 circle), Feather
 // (softness of the edge) and Highlights (keeps bright areas bright when darkening).

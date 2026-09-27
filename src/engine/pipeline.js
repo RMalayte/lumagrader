@@ -38,25 +38,44 @@ export function renderImage(canvas, source, s, luts = {}) {
     source = c
   }
   const src = s.geometry && !isGeometryDefault(s.geometry) ? applyGeometry(source, s.geometry) : source
+  let webglError
   try {
     renderTonalWebGL(canvas, src, s, luts)
     return
   } catch (err) {
+    webglError = err
     console.warn('WebGL render failed, falling back to Canvas 2D:', err)
   }
+  // A canvas that already holds a WebGL context can't give a 2D one — let the caller recover
+  // (the preview swaps in a fresh canvas; renderToCanvas renders on a plain canvas).
+  if (!canvas.getContext('2d')) throw webglError
   renderTonalCanvas2D(canvas, src, s, luts)
 }
 
 // One shared off-screen WebGL canvas for every "render and read back" job (histogram,
 // preset thumbnails, before/after, export). Browsers allow only ~16 live WebGL contexts and
-// silently kill the OLDEST one when exceeded — which was the main preview. Creating a new
-// canvas per render (as the histogram did on every slider move) exhausted that limit.
+// silently kill the OLDEST one (the main preview) when exceeded, so never create a new
+// canvas per render.
 let scratchCanvas = null
 
 /** Renders into the shared scratch canvas, then copies into `target` (a plain 2D canvas). */
-export function renderToCanvas(target, source, s, luts = {}) {
+export function renderToCanvas(target, source, s, luts = {}, { allowCanvasFallback = true } = {}) {
   if (!scratchCanvas) scratchCanvas = document.createElement('canvas')
-  renderImage(scratchCanvas, source, s, luts)
+  try {
+    renderImage(scratchCanvas, source, s, luts)
+  } catch (err) {
+    if (!allowCanvasFallback) {
+      scratchCanvas = null
+      throw err
+    }
+    // WebGL failed on the scratch canvas (too big / context lost): start a new scratch canvas
+    // next time, and render this one with the Canvas 2D engine directly into the target.
+    scratchCanvas = null
+    console.warn('Scratch WebGL render failed — using Canvas 2D for this render.', err)
+    const src = s.geometry && !isGeometryDefault(s.geometry) ? applyGeometry(source, s.geometry) : source
+    renderTonalCanvas2D(target, src, s, luts)
+    return target
+  }
   target.width = scratchCanvas.width
   target.height = scratchCanvas.height
   const ctx = target.getContext('2d')

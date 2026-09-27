@@ -73,7 +73,7 @@ float lutCoord(float v, float n) {
   return t * (n - 1.0) / n + 0.5 / n;
 }
 
-// ---- Engine v3 color (mirrors engine/color.js) ----
+// ---- Color (mirrors engine/color.js) ----
 float luma709(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 
 vec3 fitGamut(vec3 lin) {
@@ -210,7 +210,7 @@ float valueNoise(vec2 p) {
 void main() {
   vec3 c = texture(u_image, v_uv).rgb;
 
-  // Engine v2 tone — see tone.js (math) and localBase.js (edge-aware local base).
+  // Tone — see tone.js (math) and localBase.js (edge-aware local base).
   // Linear light; white balance first (like a RAW converter), then Highlights/Shadows from the
   // local base, then Whites/Blacks/Contrast; luminance-ratio scaling keeps hue; gamut fit
   // instead of per-channel clipping.

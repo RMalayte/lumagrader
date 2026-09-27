@@ -217,7 +217,7 @@ export function developRaw(data16, w, h, params) {
   toneAndColor(data16, w, h, p, lut, p.saturation, rgba)
   // Radius scales with resolution so preview (half size) and export (full size) match.
   reduceColorNoise(rgba, w, h, Math.max(1, Math.round(Math.max(w, h) / 1600)))
-  // v0.7.2: "Luma Color" base look (Lightroom-like default colour) on top of the camera match.
+  // "Luma Color" base look (Lightroom-like default colour) on top of the camera match.
   if (p.look !== 'camera') applyLumaColorLook(rgba)
   return { rgba, params: p }
 }

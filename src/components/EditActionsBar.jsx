@@ -4,6 +4,7 @@ import { useFeedback } from '../store/FeedbackContext'
 import { defaultSettings } from '../engine/defaults'
 import { shouldIgnoreShortcut, isMod } from '../engine/keyboard'
 import Icon from './Icon.jsx'
+import { kofiUrl } from '../config'
 
 // Export pulls in jszip + piexifjs — loaded only when the export dialog is first opened.
 const ExportModal = lazy(() => import('./ExportModal.jsx'))
@@ -145,6 +146,11 @@ export default function EditActionsBar({ onAbout }) {
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); copySettings() }}>
               <Icon name="copy" size={14} /> {hasSelection ? `Copy to selected (${selectedCount})` : 'Copy edits to all'}
             </button>
+            {kofiUrl() && (
+              <a role="menuitem" className="menu-link" href={kofiUrl()} target="_blank" rel="noopener noreferrer" onClick={() => setMoreOpen(false)}>
+                <Icon name="coffee" size={14} /> Support on Ko-fi
+              </a>
+            )}
             {onAbout && (
               <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onAbout() }}>
                 <Icon name="info" size={14} /> About · What&apos;s new

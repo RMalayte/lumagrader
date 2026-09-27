@@ -2,9 +2,8 @@
 //
 // Lightroom's Highlights/Shadows are LOCAL: they react to how bright a pixel's SURROUNDINGS
 // are, not just the pixel. A bright wall gets darker, but small bright details inside it stay
-// bright and its texture survives. A purely per-pixel curve (engine v2.0) squashed the ends of
-// the range and flattened local contrast (measured vs Lightroom: blacks 27 vs 20, top whites
-// 222 vs 245, fine-detail energy 3.08 vs 3.61 on Rax's comparison photo).
+// bright and its texture survives. A purely per-pixel curve squashes the ends of the range
+// and flattens local contrast.
 //
 // We use a self-guided filter (He et al.) on log2 luminance, computed on a small ≤256px copy
 // of the photo. It smooths inside regions but keeps strong edges, so there are no halos. The
@@ -15,7 +14,7 @@
 export const GF_MAX = 256 // low-res working size (longest side)
 // radiusFrac: box radius as a fraction of the longest side; eps: edge threshold in EV²
 // (edges stronger than ~√eps stops are preserved). Exported so calibration can tune them.
-export const GF_PARAMS = { radiusFrac: 0.057, eps: 0.163 } // fitted with the tone zones (v0.5.1)
+export const GF_PARAMS = { radiusFrac: 0.057, eps: 0.163 } // fitted together with the tone zones (tone.js)
 const LOG_FLOOR = -14
 
 function boxBlur(src, w, h, r) {

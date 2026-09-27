@@ -118,8 +118,8 @@ const GROUPS = [
 export default function ControlsPanel() {
   const { state, dispatch } = useProject()
   const isMobile = useMediaQuery(MOBILE_QUERY)
-  // Mobile: the tool sheet is always open at a FIXED height, so the photo keeps the same
-  // size no matter which tab or panel is open (it used to resize with the sheet's content).
+  // Mobile: the tool sheet has a FIXED height, so the photo keeps the same size no matter
+  // which tab or panel is open.
   const [mobileTab, setMobileTab] = useState('light')
   const [sheetCollapsed, setSheetCollapsed] = useState(false) // tap the active tab → photo gets the space
   const active = state.images.find((im) => im.id === state.activeId)

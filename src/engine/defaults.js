@@ -4,8 +4,7 @@ import { defaultGeometry } from './geometry'
 import { canonicalProfile } from './colorProfiles'
 import { defaultColorGrade, hueSat } from './color'
 
-// Exposure is in stops (EV) since engine v2 — these were converted from the old ±100 scale.
-// Vignette follows Lightroom since engine v3: negative = darker corners.
+// Exposure is in stops (EV); vignette follows Lightroom (negative = darker corners).
 export const PRESETS = {
   None: { exposure: 0, contrast: 0, curve: 0, saturation: 0, temp: 0, tint: 0, vignette: 0, grain: 0 },
   'Travel Warm': { exposure: 0.08, contrast: 14, curve: 10, saturation: 12, temp: 22, tint: -4, vignette: -18, grain: 6 },
@@ -32,7 +31,7 @@ export const ENGINE_VERSION = 4
  */
 export function migrateSettings(s) {
   if (!s || typeof s !== 'object') return s
-  // v0.7.2: profiles renamed "Adobe …" → "Luma …" (independent of the engine version).
+  // Legacy "Adobe …" profile names → "Luma …" (independent of the engine version).
   if (s.colorProfile && s.colorProfile !== canonicalProfile(s.colorProfile)) s = { ...s, colorProfile: canonicalProfile(s.colorProfile) }
   if (s.engine >= ENGINE_VERSION) return s
   const out = { ...s, engine: ENGINE_VERSION }

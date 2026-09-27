@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { CHANGELOG } from '../changelog'
-import { APP_VERSION, BUILD_DATE, ReleaseNotes } from './WhatsNew.jsx'
+import { APP_VERSION, BUILD_DATE, ReleaseNotes } from './ReleaseNotes.jsx'
 import logo from '../assets/logo-wordmark.webp'
+import { kofiUrl } from '../config'
+import Icon from './Icon.jsx'
 
 const REPO = 'https://github.com/RMalayte/lumagrader'
 
@@ -27,6 +29,14 @@ export default function AboutDialog({ onClose }) {
             <div className="about-version">Version {APP_VERSION} · built {BUILD_DATE}</div>
             <p>Browser-based, Lightroom-style RAW &amp; photo editor. Your photos never leave your device —
               everything runs in this browser; no account, no upload, no tracking.</p>
+            {kofiUrl() && (
+              <div className="about-support">
+                <a className="action primary support-btn" href={kofiUrl()} target="_blank" rel="noopener noreferrer">
+                  <Icon name="coffee" size={16} /> Support LumaGrader on Ko-fi
+                </a>
+                <p className="about-small">LumaGrader is free. Tips keep it free and help pay for new features.</p>
+              </div>
+            )}
             <div className="about-links">
               <a href={REPO} target="_blank" rel="noopener noreferrer">Source code (GitHub)</a>
               <a href={`${REPO}/issues`} target="_blank" rel="noopener noreferrer">Report a problem</a>

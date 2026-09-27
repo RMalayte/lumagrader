@@ -30,6 +30,7 @@ const PATHS = {
   loupe: 'M4 4h16v16H4zM4 15l4-4 4 4 3-3 5 5',
   grid: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  coffee: 'M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5zM17 10h1.5a2.5 2.5 0 0 1 0 5H17M8 3v3M12 3v3',
 }
 
 export default function Icon({ name, size = 16, className = '', strokeWidth = 2 }) {

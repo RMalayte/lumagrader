@@ -42,6 +42,25 @@ Push to `main` — `.github/workflows/deploy.yml` lints, builds and publishes `d
 GitHub Pages. One-time setup: repo **Settings → Pages → Build and deployment → Source:
 GitHub Actions**. The site appears at `https://<username>.github.io/<repo>/`.
 
+## No update popup (v0.9.3)
+
+- Removed the "What's new" popup (`WhatsNew.jsx`). Release notes live only in About;
+  `APP_VERSION`, `BUILD_DATE` and `ReleaseNotes` moved to `components/ReleaseNotes.jsx`.
+  Release step is unchanged: bump `package.json` + add an entry to `src/changelog.js`.
+
+## Maintenance (v0.9.2)
+
+- Removed outdated/history comments from the source (kept the ones that explain *why*).
+- Removed the unused presets-store link from `src/config.js` and About.
+
+## Phone GPU safety + Ko-fi (v0.9.1)
+
+- Zoom/export stay within the device's GPU limits (MAX_TEXTURE_SIZE; 4096 px zoom / 6000 px
+  export cap on touch devices). If the GPU context is lost, the preview swaps in a fresh canvas
+  at a lighter resolution and tells the user; exports retry smaller instead of failing.
+- **Support link**: set your Ko-fi name in `src/config.js`;
+  a Support button then appears in the header (desktop), the ⋯ menu (phones) and About.
+
 ## Presence & Effects, What's new, About (v0.9.0)
 
 - **Clarity / Texture** are luminance-only (no colour shifts). Clarity: midtone-weighted local

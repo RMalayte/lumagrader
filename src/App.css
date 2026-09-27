@@ -181,7 +181,7 @@ button.action:disabled{opacity:1;background:var(--bg2);color:var(--disabled);cur
 }
 
 /* ============================================================
-   v0.2 UI — shared controls
+   Shared controls
    ============================================================ */
 .empty{color:var(--sub);font-size:13px;text-align:center;padding:40px 10px;}
 .tbtn{display:inline-flex;align-items:center;gap:6px;background:var(--chip);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--text);cursor:pointer;white-space:nowrap;min-height:30px;}
@@ -386,7 +386,7 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 .btnrow > .file-btn{flex:1;width:auto;margin-top:0;}
 .btnrow > button.action{min-width:0;}
 
-/* Mobile compaction (v0.3.1): every pixel saved here goes to the photo. */
+/* Mobile compaction: every pixel saved here goes to the photo. */
 @media(max-width:859px){
   .app-header{padding:6px 10px;gap:6px;}
   .app-logo{height:26px;}
@@ -415,7 +415,7 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 .hold-before-label{position:absolute;top:10px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.7);color:#fff;font-size:12px;font-weight:600;padding:4px 12px;border-radius:14px;pointer-events:none;z-index:25;}
 .stage canvas{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
 
-/* Mobile v0.6.2 — Lightroom-Mobile-style viewer: one-row header, edge-to-edge photo,
+/* Mobile: Lightroom-Mobile-style viewer: one-row header, edge-to-edge photo,
    filmstrip on demand, collapsible tool sheet. */
 @media(max-width:859px){
   .show-mobile{display:inline-flex!important;}
@@ -453,7 +453,7 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 }
 @media (pointer:coarse){.curve-svg{touch-action:pan-y;}}
 
-/* Mobile v0.6.3 — photo gets the full area under a single header row. */
+/* Mobile: photo gets the full area under a single header row. */
 .menu-sep{height:1px;background:var(--line);margin:4px 2px;}
 .dropdown-menu .is-current{color:var(--accent);}
 @media(max-width:859px){
@@ -485,7 +485,7 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 .wb-select{background:var(--bg2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12.5px;max-width:60%;}
 .link-btn{background:none;border:none;color:var(--accent);padding:0;font-size:inherit;cursor:pointer;text-decoration:underline;}
 
-/* Color grading (v0.8.0) */
+/* Color grading */
 .grade-views{margin-bottom:10px;}
 .grade-3way{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;}
 .grade-row{display:flex;justify-content:space-between;gap:10px;}
@@ -505,12 +505,12 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
   .wheel-handle{width:22px;height:22px;margin:-11px 0 0 -11px;}
 }
 
-/* Effects detail sliders (v0.9) */
+/* Effects detail sliders */
 .sub-slider{padding-left:12px;border-left:2px solid var(--line);margin-left:2px;}
 .sub-slider .slider-row label{font-size:12px;color:var(--sub);}
 
-/* About + What's new (v0.9) */
-.about-panel,.whats-new{max-width:520px;}
+/* About + release notes */
+.about-panel{max-width:520px;}
 .about-hero{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;margin-bottom:8px;}
 .about-hero p{font-size:13px;color:var(--text);margin:4px 0;line-height:1.45;}
 .about-logo{height:34px;width:auto;}
@@ -525,3 +525,10 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 .release ul{margin:0;padding-left:18px;font-size:12.5px;color:var(--text);line-height:1.45;}
 .release li{margin:2px 0;}
 @media(max-width:859px){.app-header.is-editing .about-btn{display:none;}}
+
+/* Support (Ko-fi) */
+.about-support{display:flex;flex-direction:column;align-items:center;gap:6px;margin:6px 0 4px;width:100%;}
+.support-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;max-width:320px;width:100%;}
+.support-link{text-decoration:none;color:#ff5e5b;border-color:#ff5e5b55;}
+.dropdown-menu .menu-link{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:6px;font-size:12.5px;color:var(--text);text-decoration:none;}
+.dropdown-menu .menu-link:hover{background:var(--bg2);}

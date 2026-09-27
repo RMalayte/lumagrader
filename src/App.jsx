@@ -15,7 +15,7 @@ import logo from './assets/logo-wordmark.webp'
 const CatalogView = lazy(() => import('./components/CatalogView.jsx'))
 const ShortcutsHelp = lazy(() => import('./components/ShortcutsHelp.jsx'))
 const AboutDialog = lazy(() => import('./components/AboutDialog.jsx'))
-import WhatsNew from './components/WhatsNew.jsx'
+import { kofiUrl } from './config.js'
 
 const VIEW_MODES = [
   { mode: 'filmstrip', label: 'Filmstrip', icon: 'filmstrip' },
@@ -164,6 +164,12 @@ export default function App() {
           <button type="button" className="tbtn icon-only hide-mobile" onClick={() => setShowShortcuts(true)} aria-label="Keyboard shortcuts (?)" title="Keyboard shortcuts (?)">
             <Icon name="keyboard" size={16} />
           </button>
+          {kofiUrl() && (
+            <a className="tbtn support-link hide-mobile" href={kofiUrl()} target="_blank" rel="noopener noreferrer" title="Support LumaGrader on Ko-fi">
+              <Icon name="coffee" size={15} />
+              <span className="btn-label">Support</span>
+            </a>
+          )}
           <button type="button" className="tbtn icon-only about-btn" onClick={() => setShowAbout(true)} aria-label="About LumaGrader" title="About LumaGrader · what's new">
             <Icon name="info" size={16} />
           </button>
@@ -192,7 +198,6 @@ export default function App() {
           <AboutDialog onClose={closeAbout} />
         </Suspense>
       )}
-      <WhatsNew />
     </div>
   )
 }

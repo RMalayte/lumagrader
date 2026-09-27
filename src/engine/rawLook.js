@@ -1,14 +1,13 @@
-// "Luma Color" base look for RAW photos (v0.7.2).
+// "Luma Color" base look for RAW photos.
 //
 // The RAW develop (rawDevelop.js) matches the camera's own JPEG in brightness and overall
 // colourfulness. Lightroom's default RAW rendering is more colourful in reds/oranges, blues
 // and magentas, pulls oranges/yellows toward red and renders blues a little brighter. This
-// look closes that gap. It was FITTED from Rax's zero-settings comparison (same Canon RAW,
-// Lightroom "Adobe Color" vs LumaGrader v0.7.1), in Oklab (perceptual):
+// look closes that gap. It was fitted to a zero-settings comparison against Lightroom's
+// default profile (same Canon RAW), in Oklab (perceptual):
 //   per hue: hue shift (deg), chroma gain, lightness shift — smooth periodic splines over 12
 //   knots (15°, 45°, … 345° Oklab hue) — faded out for near-neutral pixels, plus a gentle
-//   global lightness curve. On the fitted photo the colour error on coloured areas halves
-//   (mean ΔE_ok 0.041 → 0.019). One photo, one camera: treat as a first calibration.
+//   global lightness curve. Fitted on one photo from one camera: a first calibration.
 //
 // Applied once per develop (preview and full-size export alike) through a 33³ RGB LUT.
 

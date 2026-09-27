@@ -5,6 +5,7 @@ import { useProject } from '../store/ProjectContext'
 import { useFeedback } from '../store/FeedbackContext'
 import { renderToCanvas } from '../engine/pipeline'
 import { getFullImage } from '../engine/imageStore'
+import { gpuMaxDimension } from '../engine/webgl/renderer'
 import { resizeCanvas, applyWatermark, formatMime, formatExt, injectExif } from '../engine/exportUtils'
 
 const RESOLUTIONS = [
@@ -51,9 +52,21 @@ export default function ExportModal({ mode, onClose }) {
 
   async function renderFinal(im) {
     // Full-size pixels are decoded only now, one photo at a time (the cache keeps just one).
-    const full = await getFullImage(im)
-    if (full.reducedSize) toast(`${im.name}: not enough memory for full-size RAW — exported at half size`, { type: 'error', duration: 7000 })
-    const canvas = renderToCanvas(document.createElement('canvas'), full, effectiveSettings(im), state.luts)
+    // Phones: capped to what the GPU takes (6000 px long side at most); if the GPU still gives
+    // up, retry at 70% until it fits — never a blank or silently different file.
+    const coarse = window.matchMedia?.('(pointer: coarse)').matches
+    let cap = Math.min(gpuMaxDimension(), coarse ? 6000 : Infinity)
+    let canvas = null, full = null
+    for (let attempt = 0; attempt < 4 && !canvas; attempt++) {
+      full = await getFullImage(im, cap)
+      try {
+        canvas = renderToCanvas(document.createElement('canvas'), full, effectiveSettings(im), state.luts, { allowCanvasFallback: attempt === 3 })
+      } catch (err) {
+        console.warn(`Export render failed at ${full.width}×${full.height}, retrying smaller`, err)
+        cap = Math.round(Math.max(full.width, full.height) * 0.7)
+      }
+    }
+    if (full.reducedSize) toast(`${im.name}: exported at ${canvas.width}×${canvas.height} — the full size is too large for this device`, { type: 'error', duration: 7000 })
     const resized = resizeCanvas(canvas, maxDim)
     const watermarked = applyWatermark(resized, watermark)
     let blob = await new Promise((res) => watermarked.toBlob(res, formatMime(format), quality / 100))

@@ -1,5 +1,5 @@
 // Background thread for RAW import: parsing a 20–60 MB RAW container to find its embedded
-// preview used to freeze the UI. Here we only do the byte work (find the preview JPEG +
+// preview would freeze the UI. Here we only do the byte work (find the preview JPEG +
 // read orientation) and hand the JPEG bytes back; decoding/drawing stays on the main thread.
 import { extractThumbnail } from 'extract-raw-preview'
 import { readRawOrientation, readJpegOrientation } from '../engine/orientation'

@@ -28,17 +28,17 @@ export function usePreview(image) {
 }
 
 /** The full-size image, loaded only while `wanted` is true (1:1 zoom). */
-export function useFullImage(image, wanted) {
+export function useFullImage(image, wanted, maxDim = Infinity) {
   const [loaded, setLoaded] = useState({ id: null, img: null })
   useEffect(() => {
     if (!image || !wanted) return
     let cancelled = false
-    getFullImage(image).then((img) => !cancelled && setLoaded({ id: image.id, img }), () => {})
+    getFullImage(image, maxDim).then((img) => !cancelled && setLoaded({ id: image.id, img }), () => {})
     return () => {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [image?.id, image?.sourceBlob, wanted])
+  }, [image?.id, image?.sourceBlob, wanted, maxDim])
   return wanted && loaded.id === image?.id ? loaded.img : null
 }
 
