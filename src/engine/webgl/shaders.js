@@ -53,7 +53,9 @@ uniform float u_gradeBalance;
 uniform float u_grain;      // peak amplitude (color.js grainAmplitude)
 uniform vec2 u_grainCells;  // grain cells across the image (color.js grainCells)
 
-uniform float u_vignette;
+uniform float u_vignette;     // amount −1..1 (color.js vignetteParams)
+uniform vec4 u_vigParams;     // midpoint, roundness, feather, highlights (0..1 / −1..1)
+uniform float u_grainRough;
 uniform vec2 u_resolution;
 uniform float u_dehaze;
 
@@ -236,16 +238,9 @@ void main() {
   // Dehaze approximation: not a true dark-channel-prior haze removal — just extra
   // contrast + saturation to punch through a hazy/flat look, paired with a large-radius
   // local-contrast pass later in the effect chain.
-  if (u_dehaze > 0.0) {
-    c = clamp((c - 0.5) * (1.0 + u_dehaze * 0.6) + 0.5, 0.0, 1.0);
-    float dehazeLuma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    c = clamp(mix(vec3(dehazeLuma), c, 1.0 + u_dehaze * 0.3), 0.0, 1.0);
-  } else if (u_dehaze < 0.0) {
-    // Negative Dehaze adds haze: a milky veil + a little desaturation.
-    float amt = -u_dehaze;
-    c = mix(c, vec3(luma709(c)), amt * 0.3);
-    c = mix(c, vec3(0.8), amt * 0.45);
-  }
+  // Dehaze: the haze removal itself is the dark-channel pass (renderer, combine mode 4);
+  // here only the colour lift Lightroom's Dehaze also gives.
+  if (u_dehaze > 0.0) c = scaleChroma(c, 1.0 + u_dehaze * 0.25);
 
   if (u_curveStrength != 0.0) {
     float gamma = 1.0 - u_curveStrength / 220.0;
@@ -292,21 +287,31 @@ void main() {
   if (u_grain > 0.0) {
     // Image position (top-down rows, like the Canvas fallback) → same grain in preview and export.
     vec2 p = vec2(v_uv.x, 1.0 - v_uv.y) * u_grainCells;
-    float n = 0.7 * (valueNoise(p) - 0.5) + 0.3 * (valueNoise(p * 2.3 + vec2(17.1, 5.3)) - 0.5);
+    float n = (1.0 - 0.6 * u_grainRough) * (valueNoise(p) - 0.5) + 0.6 * u_grainRough * (valueNoise(p * 2.3 + vec2(17.1, 5.3)) - 0.5);
     float le = clamp(luma709(c), 0.0, 1.0);
     n *= 2.0 * u_grain * (0.3 + 0.7 * 4.0 * le * (1.0 - le));
     c += n;
   }
 
-  if (u_vignette != 0.0) { // Lightroom convention: negative darkens the corners, positive lightens
-    vec2 pixelPos = v_uv * u_resolution;
-    vec2 center = u_resolution * 0.5;
-    float dist = distance(pixelPos, center);
-    float innerR = min(u_resolution.x, u_resolution.y) * 0.3;
-    float outerR = max(u_resolution.x, u_resolution.y) * 0.7;
-    float t = clamp((dist - innerR) / (outerR - innerR), 0.0, 1.0);
-    float a = t * abs(u_vignette) / 140.0;
-    c = u_vignette < 0.0 ? c * (1.0 - a) : mix(c, vec3(1.0), a); // matches the Canvas 2D overlay
+  if (u_vignette != 0.0) { // Lightroom post-crop vignette — mirrors color.js vignetteWeight/applyVignette
+    vec2 q = (vec2(v_uv.x, 1.0 - v_uv.y) - 0.5) * 2.0;
+    float rnd = u_vigParams.y;
+    if (rnd > 0.0) {
+      float m = min(u_resolution.x, u_resolution.y);
+      q *= 1.0 + (u_resolution / m - 1.0) * rnd;
+    }
+    float pw = rnd < 0.0 ? 2.0 - rnd * 4.0 : 2.0;
+    float d = pow(pow(abs(q.x), pw) + pow(abs(q.y), pw), 1.0 / pw);
+    float r = 0.45 + 0.95 * u_vigParams.x;
+    float fw = 0.05 + u_vigParams.z;
+    float wgt = smoothstep(r - fw * 0.5, r + fw * 0.5, d);
+    if (u_vignette < 0.0) {
+      float k = -u_vignette * wgt;
+      k *= 1.0 - 0.9 * u_vigParams.w * smoothstep(0.5, 1.0, luma709(c));
+      c *= 1.0 - 0.85 * k;
+    } else {
+      c = mix(c, vec3(1.0), u_vignette * wgt * 0.85);
+    }
   }
 
   outColor = vec4(clamp(c, 0.0, 1.0), 1.0);
@@ -464,9 +469,37 @@ uniform sampler2D u_blurred;
 uniform float u_amount;
 uniform int u_mode;
 
+// Modes: 0 unsharp (push from blur), 1 blend toward blur,
+//        2 Clarity — luminance-only local contrast, strongest in the midtones, halo-limited,
+//        3 Texture — luminance-only fine detail, halo-limited,
+//        4 Dehaze — dark-channel haze estimate from the large-scale blur; negative adds haze.
+// Luminance-only: the same offset is added to R, G and B, so colours don't shift.
+float lumaC(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
 void main() {
   vec3 orig = texture(u_original, v_uv).rgb;
   vec3 blur = texture(u_blurred, v_uv).rgb;
-  vec3 result = u_mode == 0 ? orig + u_amount * (orig - blur) : mix(orig, blur, u_amount);
+  vec3 result;
+  if (u_mode == 0) result = orig + u_amount * (orig - blur);
+  else if (u_mode == 1) result = mix(orig, blur, u_amount);
+  else if (u_mode == 2 || u_mode == 3) {
+    float lo = lumaC(orig);
+    float d = lo - lumaC(blur);
+    float w = 1.0;
+    if (u_mode == 2) {
+      d = clamp(d, -0.12, 0.12);
+      w = mix(0.2, 1.0, clamp(4.0 * lo * (1.0 - lo), 0.0, 1.0)); // protect deep shadows / highlights
+    } else {
+      // Texture works on fine, low-contrast detail (skin, foliage, surfaces) — strong edges
+      // are left to Sharpening / Clarity, like Lightroom's Texture.
+      d *= 1.0 - smoothstep(0.04, 0.14, abs(d));
+    }
+    result = orig + u_amount * d * w;
+  } else {
+    float haze = min(min(blur.r, blur.g), blur.b);
+    float A = 0.95;
+    float t = max(1.0 - u_amount * 0.9 * haze, 0.3);
+    result = (orig - A) / t + A;
+  }
   outColor = vec4(clamp(result, 0.0, 1.0), 1.0);
 }`

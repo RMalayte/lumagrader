@@ -73,6 +73,12 @@ export const defaultSettings = () => ({
   whites: 0,
   blacks: 0,
   vibrance: 0,
+  vignetteMidpoint: 50,
+  vignetteRoundness: 0,
+  vignetteFeather: 50,
+  vignetteHighlights: 0,
+  grainSize: 25,
+  grainRoughness: 50,
   wb: null, // RAW only: { kelvin, tint } absolute white balance; null = As Shot
   curvePoints: defaultCurvePoints(),
   curvePointsR: defaultCurvePoints(),

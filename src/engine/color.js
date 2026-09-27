@@ -519,13 +519,59 @@ function valueNoise(x, y) {
   return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy
 }
 /** Grain offset for image position (u, v in 0..1) of an image with cellsX × cellsY cells. */
-export function grainAt(u, v, cellsX, cellsY, amp, lumaEnc) {
+export function grainAt(u, v, cellsX, cellsY, amp, lumaEnc, rough = 0.5) {
   const x = u * cellsX, y = v * cellsY
-  const n = 0.7 * (valueNoise(x, y) - 0.5) + 0.3 * (valueNoise(x * 2.3 + 17.1, y * 2.3 + 5.3) - 0.5)
+  // Roughness: how much of the finer, irregular octave is mixed in (LR default 50 → 0.7 / 0.3).
+  const n = (1 - 0.6 * rough) * (valueNoise(x, y) - 0.5) + 0.6 * rough * (valueNoise(x * 2.3 + 17.1, y * 2.3 + 5.3) - 0.5)
   const w = 0.3 + 0.7 * 4 * lumaEnc * (1 - lumaEnc)
   return n * 2 * amp * w
 }
-export function grainCells(w, h) {
+/** Grain Size 0–100 (LR default 25): each +25 doubles the grain size. */
+export function grainCells(w, h, size = 25) {
   const m = Math.max(w, h)
-  return [GRAIN_CELLS * (w / m), GRAIN_CELLS * (h / m)]
+  const n = GRAIN_CELLS * Math.pow(2, (25 - Math.max(0, Math.min(100, size))) / 25)
+  return [n * (w / m), n * (h / m)]
+}
+
+// ---- Post-crop vignette (v0.9) --------------------------------------------------------------
+// Lightroom-style: Amount (− darker / + lighter corners), Midpoint (how far in it reaches),
+// Roundness (−100 rounded rectangle … 0 ellipse fitting the frame … +100 circle), Feather
+// (softness of the edge) and Highlights (keeps bright areas bright when darkening).
+// Computed on the final (cropped) image, so it always follows the crop.
+export function vignetteParams(s) {
+  return {
+    amount: Math.max(-100, Math.min(100, s.vignette || 0)) / 100,
+    mid: (s.vignetteMidpoint ?? 50) / 100,
+    round: (s.vignetteRoundness ?? 0) / 100,
+    feather: (s.vignetteFeather ?? 50) / 100,
+    highlights: (s.vignetteHighlights ?? 0) / 100,
+  }
+}
+
+/** 0 (untouched centre) … 1 (full effect) for image position u, v (0..1) of a w × h image. */
+export function vignetteWeight(u, v, w, h, P) {
+  let x = (u - 0.5) * 2, y = (v - 0.5) * 2
+  if (P.round > 0) {
+    const m = Math.min(w, h)
+    x *= 1 + ((w / m) - 1) * P.round
+    y *= 1 + ((h / m) - 1) * P.round
+  }
+  const p = P.round < 0 ? 2 - P.round * 4 : 2
+  const d = Math.pow(Math.pow(Math.abs(x), p) + Math.pow(Math.abs(y), p), 1 / p)
+  const r = 0.45 + 0.95 * P.mid
+  const fw = 0.05 + P.feather
+  return smoothstep(r - fw / 2, r + fw / 2, d)
+}
+
+/** Applies the vignette to one encoded colour (0..1). */
+export function applyVignette(r, g, b, wgt, P) {
+  if (!wgt) return [r, g, b]
+  if (P.amount < 0) {
+    let k = -P.amount * wgt
+    if (P.highlights) k *= 1 - 0.9 * P.highlights * smoothstep(0.5, 1, lumaOf(r, g, b))
+    const f = 1 - 0.85 * k
+    return [r * f, g * f, b * f]
+  }
+  const k = P.amount * wgt * 0.85
+  return [r + (1 - r) * k, g + (1 - g) * k, b + (1 - b) * k]
 }

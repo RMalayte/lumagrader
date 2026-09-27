@@ -10,7 +10,7 @@ export const PANEL_KEYS = {
   color: ['wb', 'temp', 'tint', 'saturation', 'vibrance'],
   hsl: ['hsl'],
   colorGrade: ['colorGrade'],
-  effects: ['vignette', 'grain'],
+  effects: ['vignette', 'vignetteMidpoint', 'vignetteRoundness', 'vignetteFeather', 'vignetteHighlights', 'grain', 'grainSize', 'grainRoughness'],
   detail: [
     'texture', 'clarity', 'dehaze',
     'sharpen', 'sharpenRadius', 'sharpenDetail', 'sharpenMasking',

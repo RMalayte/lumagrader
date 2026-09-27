@@ -38,7 +38,7 @@ function useDismiss(open, setOpen, ref) {
 // Photo-level commands (Reset, Copy, Remove, Export) in the top header, reachable in every
 // view. Copy/Remove/Reset act on the multi-selection when there is one, otherwise on the
 // active photo. Destructive actions are instant but undoable from the toast.
-export default function EditActionsBar() {
+export default function EditActionsBar({ onAbout }) {
   const { state, dispatch, commitSettings, undo } = useProject()
   const { toast } = useFeedback()
   const [modalMode, setModalMode] = useState(null) // null | 'single' | 'selected' | 'all'
@@ -145,6 +145,11 @@ export default function EditActionsBar() {
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); copySettings() }}>
               <Icon name="copy" size={14} /> {hasSelection ? `Copy to selected (${selectedCount})` : 'Copy edits to all'}
             </button>
+            {onAbout && (
+              <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onAbout() }}>
+                <Icon name="info" size={14} /> About · What&apos;s new
+              </button>
+            )}
             <button type="button" role="menuitem" className="danger-item" onClick={() => { setMoreOpen(false); removePhotos() }}>
               <Icon name="trash" size={14} /> {hasSelection ? `Remove (${selectedCount})` : 'Remove photo'}
             </button>

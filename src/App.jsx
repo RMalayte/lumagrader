@@ -14,6 +14,8 @@ import logo from './assets/logo-wordmark.webp'
 // Loaded on first use to keep the initial download small.
 const CatalogView = lazy(() => import('./components/CatalogView.jsx'))
 const ShortcutsHelp = lazy(() => import('./components/ShortcutsHelp.jsx'))
+const AboutDialog = lazy(() => import('./components/AboutDialog.jsx'))
+import WhatsNew from './components/WhatsNew.jsx'
 
 const VIEW_MODES = [
   { mode: 'filmstrip', label: 'Filmstrip', icon: 'filmstrip' },
@@ -43,6 +45,8 @@ export default function App() {
   const editingPhoto = !!activePhoto && state.viewMode !== 'catalog'
   const { saveProject, saving, hasImages } = useSaveProject()
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
+  const closeAbout = useCallback(() => setShowAbout(false), [])
   const closeShortcuts = useCallback(() => setShowShortcuts(false), [])
 
   // Global shortcuts. Canvas-specific keys live in CanvasPreview; export/remove in EditActionsBar.
@@ -145,7 +149,7 @@ export default function App() {
           </div>
         )}
         <div className="header-right">
-          {state.viewMode !== 'catalog' && <EditActionsBar />}
+          {state.viewMode !== 'catalog' && <EditActionsBar onAbout={() => setShowAbout(true)} />}
           <button
             type="button"
             className={'tbtn' + (state.isDirty ? ' has-changes' : '')}
@@ -159,6 +163,9 @@ export default function App() {
           </button>
           <button type="button" className="tbtn icon-only hide-mobile" onClick={() => setShowShortcuts(true)} aria-label="Keyboard shortcuts (?)" title="Keyboard shortcuts (?)">
             <Icon name="keyboard" size={16} />
+          </button>
+          <button type="button" className="tbtn icon-only about-btn" onClick={() => setShowAbout(true)} aria-label="About LumaGrader" title="About LumaGrader · what's new">
+            <Icon name="info" size={16} />
           </button>
         </div>
       </header>
@@ -180,6 +187,12 @@ export default function App() {
           <ShortcutsHelp onClose={closeShortcuts} />
         </Suspense>
       )}
+      {showAbout && (
+        <Suspense fallback={null}>
+          <AboutDialog onClose={closeAbout} />
+        </Suspense>
+      )}
+      <WhatsNew />
     </div>
   )
 }

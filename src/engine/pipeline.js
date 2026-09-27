@@ -4,7 +4,7 @@ import { isToneActive, isLocalToneActive, buildLocalLUT, buildGlobalLUT, sampleL
 import { getLocalBaseMap, sampleLocalBase } from './localBase'
 import { applyGeometry, isGeometryDefault } from './geometry'
 import { HSL_BANDS } from './hsl'
-import { wbMatrixFor, isGradeActive, gradeUniforms, applyGrade, grainAmplitude, grainCells, grainAt, satVibFactor, scaleChroma, hueSat, withHue, hslBandWeights, neutralFade, lumaOf, HSL_HUE_DEG, HSL_LUM_EV } from './color'
+import { wbMatrixFor, isGradeActive, gradeUniforms, applyGrade, grainAmplitude, grainCells, grainAt, vignetteParams, vignetteWeight, applyVignette, satVibFactor, scaleChroma, hueSat, withHue, hslBandWeights, neutralFade, lumaOf, HSL_HUE_DEG, HSL_LUM_EV } from './color'
 import { getProfileBias } from './colorProfiles'
 import { renderTonalWebGL } from './webgl/renderer'
 
@@ -107,9 +107,11 @@ function renderTonalCanvas2D(canvas, src, s, luts = {}) {
   })
   const hslActive = [...hslH, ...hslS, ...hslL].some((v) => v)
   const grainAmt = s.grain > 0 ? grainAmplitude(s.grain) : 0
-  const [cellsX, cellsY] = grainCells(w, h)
+  const [cellsX, cellsY] = grainCells(w, h, s.grainSize ?? 25)
+  const grainRough = (s.grainRoughness ?? 50) / 100
+  const vig = vignetteParams(s)
   const grade = isGradeActive(s.colorGrade) ? gradeUniforms(s.colorGrade) : null
-  const needsPixelPass = linearOn || satOn || dehaze || curveLut || curvePointsLut || cubeLut || hslActive || grade || grainAmt
+  const needsPixelPass = linearOn || satOn || dehaze || curveLut || curvePointsLut || cubeLut || hslActive || grade || grainAmt || vig.amount
 
   if (needsPixelPass) {
     const id = ctx.getImageData(0, 0, w, h)
@@ -192,8 +194,12 @@ function renderTonalCanvas2D(canvas, src, s, luts = {}) {
       if (grainAmt) {
         const px = (i >> 2) % w, py = ((i >> 2) / w) | 0
         const le = Math.min(1, Math.max(0, lumaOf(r, g, b)))
-        const n = grainAt((px + 0.5) / w, (py + 0.5) / h, cellsX, cellsY, grainAmt, le)
+        const n = grainAt((px + 0.5) / w, (py + 0.5) / h, cellsX, cellsY, grainAmt, le, grainRough)
         r += n; g += n; b += n
+      }
+      if (vig.amount) {
+        const px = (i >> 2) % w, py = ((i >> 2) / w) | 0
+        ;[r, g, b] = applyVignette(r, g, b, vignetteWeight((px + 0.5) / w, (py + 0.5) / h, w, h, vig), vig)
       }
       r *= 255; g *= 255; b *= 255
 
@@ -203,13 +209,4 @@ function renderTonalCanvas2D(canvas, src, s, luts = {}) {
   }
 
 
-  // Vignette, Lightroom convention: negative darkens the corners, positive lightens them.
-  if (s.vignette) {
-    const grad = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.3, w / 2, h / 2, Math.max(w, h) * 0.7)
-    const tone = s.vignette < 0 ? '0,0,0' : '255,255,255'
-    grad.addColorStop(0, `rgba(${tone},0)`)
-    grad.addColorStop(1, `rgba(${tone},${Math.abs(s.vignette) / 140})`)
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, w, h)
-  }
 }

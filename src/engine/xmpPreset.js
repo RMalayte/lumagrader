@@ -150,7 +150,13 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
   if (vig !== null) {
     set('vignette', clamp(vig, -100, 100), 'Vignette') // same sign convention since engine v3
   }
+  direct('PostCropVignetteMidpoint', 'vignetteMidpoint', 'Vignette midpoint', 0, 100)
+  direct('PostCropVignetteRoundness', 'vignetteRoundness', 'Vignette roundness', -100, 100)
+  direct('PostCropVignetteFeather', 'vignetteFeather', 'Vignette feather', 0, 100)
+  direct('PostCropVignetteHighlightContrast', 'vignetteHighlights', 'Vignette highlights', 0, 100)
   direct('GrainAmount', 'grain', 'Grain', 0, 100)
+  direct('GrainSize', 'grainSize', 'Grain size', 0, 100)
+  direct('GrainFrequency', 'grainRoughness', 'Grain roughness', 0, 100)
 
   // --- Tone curve ----------------------------------------------------------------------
   // RGB composite + per-channel (Red/Green/Blue) point curves, same 0–255 scale as ours.

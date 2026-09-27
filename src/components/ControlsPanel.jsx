@@ -23,9 +23,16 @@ const LIGHT_SLIDERS = [
   { key: 'whites', label: 'Whites', min: -100, max: 100 },
   { key: 'blacks', label: 'Blacks', min: -100, max: 100 },
 ]
+// Lightroom's Effects panel: the detail sliders appear once Amount is set.
 const EFFECT_SLIDERS = [
   { key: 'vignette', label: 'Vignette', min: -100, max: 100 }, // LR: − darkens, + lightens
+  { key: 'vignetteMidpoint', label: 'Midpoint', min: 0, max: 100, sub: 'vignette' },
+  { key: 'vignetteRoundness', label: 'Roundness', min: -100, max: 100, sub: 'vignette' },
+  { key: 'vignetteFeather', label: 'Feather', min: 0, max: 100, sub: 'vignette' },
+  { key: 'vignetteHighlights', label: 'Highlights', min: 0, max: 100, sub: 'vignette', onlyNegative: true },
   { key: 'grain', label: 'Grain', min: 0, max: 100 },
+  { key: 'grainSize', label: 'Size', min: 0, max: 100, sub: 'grain' },
+  { key: 'grainRoughness', label: 'Roughness', min: 0, max: 100, sub: 'grain' },
 ]
 
 function SliderGroup({ id, title, sliders }) {
@@ -34,11 +41,12 @@ function SliderGroup({ id, title, sliders }) {
   const defaults = defaultSettings()
   return (
     <Accordion title={title} id={id} panelId={id}>
-      {sliders.map(({ key, label, min, max, step, bar }) => (
+      {sliders.filter(({ sub, onlyNegative }) => !sub || (onlyNegative ? active.settings[sub] < 0 : active.settings[sub])).map(({ key, label, min, max, step, bar, sub }) => (
+        <div key={key} className={sub ? 'sub-slider' : undefined}>
         <Slider
           key={key}
           label={label}
-          value={active.settings[key]}
+          value={active.settings[key] ?? defaults[key]}
           min={min}
           max={max}
           step={step || 1}
@@ -49,6 +57,7 @@ function SliderGroup({ id, title, sliders }) {
         >
           {bar && <div className="hue-gradient-bar" style={{ background: bar }} aria-hidden="true" />}
         </Slider>
+        </div>
       ))}
     </Accordion>
   )

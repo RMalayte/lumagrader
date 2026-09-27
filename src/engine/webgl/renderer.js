@@ -3,7 +3,7 @@ import { VERT_SRC, FRAG_SRC, BLUR_FRAG_SRC, COMBINE_FRAG_SRC, MASK_FRAG_SRC, DET
 import { buildRgbCurveLUTs } from '../curvePoints'
 import { getBrushCanvas } from '../brushMaskStore'
 import { getProfileBias } from '../colorProfiles'
-import { wbMatrixFor, isGradeActive, gradeUniforms, grainAmplitude, grainCells } from '../color'
+import { wbMatrixFor, isGradeActive, gradeUniforms, grainAmplitude, grainCells, vignetteParams } from '../color'
 import { buildLocalLUT, buildGlobalLUT, isToneActive, isLocalToneActive, LOCAL_LUT_SIZE, GLOBAL_LUT_SIZE } from '../tone'
 import { getLocalBaseMap } from '../localBase'
 
@@ -13,7 +13,7 @@ const MAIN_UNIFORM_NAMES = [
   'u_localLUT', 'u_globalLUT', 'u_gfCoef', 'u_useTone', 'u_useLocal', 'u_exposureEV', 'u_sat', 'u_useWB', 'u_wbMatrix', 'u_curveStrength',
   'u_lutStrength', 'u_hslHue', 'u_hslSat', 'u_hslLum', 'u_hslActive', 'u_vibrance',
   'u_gradeActive', 'u_gradeTint', 'u_gradeLum', 'u_gradeBlend', 'u_gradeBalance',
-  'u_grain', 'u_grainCells', 'u_vignette', 'u_resolution', 'u_dehaze',
+  'u_grain', 'u_grainCells', 'u_grainRough', 'u_vignette', 'u_vigParams', 'u_resolution', 'u_dehaze',
 ]
 
 // One WebGL2 context + compiled programs + textures per <canvas> element, reused across
@@ -148,7 +148,7 @@ function getState(canvas) {
     gl, program, blurProgram, combineProgram, maskProgram, detailProgram, quad,
     imageTex, curveTex, localTex, globalTex, gfTex, cubeTex, brushTex, uniforms, blurUniforms, combineUniforms, maskUniforms, detailUniforms,
     cachedLutName: null,
-    targetA: {}, targetB: {}, targetC: {}, targetD: {},
+    targetA: {}, targetB: {}, targetC: {}, targetD: {}, targetE: {}, targetF: {},
   }
   stateMap.set(canvas, state)
   return state
@@ -270,8 +270,11 @@ function setMainUniforms(state, s, luts, source, w, h) {
   }
 
   gl.uniform1f(uniforms.u_grain, s.grain > 0 ? grainAmplitude(s.grain) : 0)
-  gl.uniform2f(uniforms.u_grainCells, ...grainCells(w, h))
-  gl.uniform1f(uniforms.u_vignette, s.vignette || 0)
+  gl.uniform2f(uniforms.u_grainCells, ...grainCells(w, h, s.grainSize ?? 25))
+  gl.uniform1f(uniforms.u_grainRough, (s.grainRoughness ?? 50) / 100)
+  const vig = vignetteParams(s)
+  gl.uniform1f(uniforms.u_vignette, vig.amount)
+  gl.uniform4f(uniforms.u_vigParams, vig.mid, vig.round, vig.feather, vig.highlights)
   gl.uniform2f(uniforms.u_resolution, w, h)
   gl.uniform1f(uniforms.u_dehaze, (s.dehaze || 0) / 100)
 }
@@ -322,13 +325,15 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     gl.useProgram(state.blurProgram)
     bindQuad(gl, state.blurProgram, state.quad)
     gl.bindFramebuffer(gl.FRAMEBUFFER, dstTarget.framebuffer)
+    gl.viewport(0, 0, dstTarget.width, dstTarget.height)
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, srcTex)
     gl.uniform1i(state.blurUniforms.u_image, 0)
     gl.uniform2f(state.blurUniforms.u_direction, direction[0], direction[1])
-    gl.uniform2f(state.blurUniforms.u_texel, 1 / w, 1 / h)
+    gl.uniform2f(state.blurUniforms.u_texel, 1 / dstTarget.width, 1 / dstTarget.height)
     gl.uniform1f(state.blurUniforms.u_radius, radius)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
+    gl.viewport(0, 0, w, h)
   }
 
   function combinePass(originalTex, blurredTex, dstTarget, amount, mode) {
@@ -438,10 +443,12 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   // settings). Each "blur" entry reuses the same blur+combine shape; mode 0 = unsharp-style
   // push-away-from-blur, mode 1 = blend-toward-blur.
   const passes = []
-  // Negative amounts blend toward the blur (softening) — same pass, opposite direction.
-  if (dehazeActive) passes.push({ kind: 'blur', radius: 20.0 + (Math.abs(s.dehaze) / 100) * 30.0, amount: (s.dehaze / 100) * (s.dehaze > 0 ? 0.6 : 0.35), mode: 0 })
-  if (textureActive) passes.push({ kind: 'blur', radius: 2.0 + (Math.abs(s.texture) / 100) * 4.0, amount: (s.texture / 100) * (s.texture > 0 ? 0.9 : 0.75), mode: 0 })
-  if (clarityActive) passes.push({ kind: 'blur', radius: 10.0 + (Math.abs(s.clarity) / 100) * 20.0, amount: (s.clarity / 100) * (s.clarity > 0 ? 0.8 : 0.6), mode: 0 })
+  // Presence (v0.9): luminance-only (no colour shifts), radii in "preview pixels" (1600 px long
+  // side) and blurred at that scale, so the preview and a full-size export look the same.
+  // Negative amounts soften (move toward the blur) / add haze.
+  if (dehazeActive) passes.push({ kind: 'blur', radius: 40.0, amount: s.dehaze / 100, mode: 4 })
+  if (textureActive) passes.push({ kind: 'blur', radius: 2.5, amount: (s.texture / 100) * (s.texture > 0 ? 1.6 : 1.0), mode: 3 })
+  if (clarityActive) passes.push({ kind: 'blur', radius: 18.0, amount: (s.clarity / 100) * (s.clarity > 0 ? 1.3 : 0.9), mode: 2 })
   if (sharpenActive) {
     const radiusBase = s.sharpenRadius ?? 1.0
     const detailShrink = 1 - ((s.sharpenDetail ?? 25) / 100) * 0.5 // higher Detail -> smaller effective radius, finer texture
@@ -478,22 +485,28 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   passes.forEach((pass, i) => {
     const isLast = i === passes.length - 1
     if (pass.kind === 'blur') {
-      const [scratch1, scratch2] = [A, B, C, D].filter((t) => t !== sourceTarget)
-      // Softening (negative amounts) shows the sparse 9-tap kernel as ghost copies at large
-      // radii, so it runs several smaller blurs instead (Gaussians compose: σ = √n · σᵢ).
-      const iterations = pass.amount < 0 ? 3 : 1
+      // Blur at preview scale (≤1600 px long side) in two small targets; the combine pass
+      // samples it with linear filtering (smooth upscale).
+      const ds = Math.max(1, Math.max(w, h) / 1600)
+      const sw = Math.max(1, Math.ceil(w / ds)), sh = Math.max(1, Math.ceil(h / ds))
+      const E = ensureRenderTarget(gl, state.targetE, sw, sh)
+      const F = ensureRenderTarget(gl, state.targetF, sw, sh)
+      // Softening shows the sparse 9-tap kernel as ghost copies at large radii, so large
+      // radii / negative amounts run several smaller blurs (Gaussians compose: σ = √n · σᵢ).
+      const iterations = pass.amount < 0 || pass.radius > 12 ? 3 : 1
       const r = pass.radius / Math.sqrt(iterations)
-      blurPass(sourceTarget.texture, scratch1, [1, 0], r)
-      blurPass(scratch1.texture, scratch2, [0, 1], r)
+      blurPass(sourceTarget.texture, E, [1, 0], r)
+      blurPass(E.texture, F, [0, 1], r)
       for (let k = 1; k < iterations; k++) {
-        blurPass(scratch2.texture, scratch1, [1, 0], r)
-        blurPass(scratch1.texture, scratch2, [0, 1], r)
+        blurPass(F.texture, E, [1, 0], r)
+        blurPass(E.texture, F, [0, 1], r)
       }
       if (isLast) {
-        combinePass(sourceTarget.texture, scratch2.texture, null, pass.amount, pass.mode)
+        combinePass(sourceTarget.texture, F.texture, null, pass.amount, pass.mode)
       } else {
-        combinePass(sourceTarget.texture, scratch2.texture, scratch1, pass.amount, pass.mode)
-        sourceTarget = scratch1
+        const dest = [A, B, C, D].find((t) => t !== sourceTarget)
+        combinePass(sourceTarget.texture, F.texture, dest, pass.amount, pass.mode)
+        sourceTarget = dest
       }
     } else if (pass.kind === 'detail') {
       const dest = isLast ? null : [A, B, C, D].find((t) => t !== sourceTarget)

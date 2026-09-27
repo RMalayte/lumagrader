@@ -42,6 +42,20 @@ Push to `main` — `.github/workflows/deploy.yml` lints, builds and publishes `d
 GitHub Pages. One-time setup: repo **Settings → Pages → Build and deployment → Source:
 GitHub Actions**. The site appears at `https://<username>.github.io/<repo>/`.
 
+## Presence & Effects, What's new, About (v0.9.0)
+
+- **Clarity / Texture** are luminance-only (no colour shifts). Clarity: midtone-weighted local
+  contrast with a halo limit; Texture: fine, low-contrast detail only (strong edges untouched).
+  **Dehaze**: dark-channel haze estimate from a large blur ((I − A)/t + A); negative adds haze.
+  Their blurs run at preview scale (≤1600 px long side) in small render targets, so the preview
+  and a full-size export match.
+- **Post-crop vignette**: Amount, Midpoint, Roundness, Feather, Highlights (Lightroom-style;
+  detail sliders appear once Amount is set). **Grain**: Amount, Size, Roughness.
+- **What's new** popup after each update (`src/changelog.js`; last seen version in
+  localStorage) and an **About** dialog (version, build date, full history, license, credits).
+  Version/date come from `package.json` via Vite `define` (`__APP_VERSION__`, `__BUILD_DATE__`).
+  **When releasing: bump `package.json` version and add an entry to `src/changelog.js`.**
+
 ## Grading calibration + new grain (v0.8.1)
 
 - Color Grading calibrated to a Lightroom comparison (Shadows 200°/40, Highlights 40°/40):
