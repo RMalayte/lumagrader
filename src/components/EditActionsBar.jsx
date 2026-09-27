@@ -8,6 +8,12 @@ import Icon from './Icon.jsx'
 // Export pulls in jszip + piexifjs — loaded only when the export dialog is first opened.
 const ExportModal = lazy(() => import('./ExportModal.jsx'))
 
+const VIEW_ITEMS = [
+  { mode: 'filmstrip', label: 'Edit (filmstrip)', icon: 'filmstrip' },
+  { mode: 'loupe', label: 'Loupe (photo only)', icon: 'loupe' },
+  { mode: 'catalog', label: 'Projects', icon: 'grid' },
+]
+
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /** Closes a dropdown on outside press or Escape. */
@@ -120,6 +126,19 @@ export default function EditActionsBar() {
         </button>
         {moreOpen && (
           <div className="dropdown-menu" role="menu">
+            {VIEW_ITEMS.map((v) => (
+              <button
+                key={v.mode}
+                type="button"
+                role="menuitemradio"
+                aria-checked={state.viewMode === v.mode}
+                className={state.viewMode === v.mode ? 'is-current' : ''}
+                onClick={() => { setMoreOpen(false); dispatch({ type: 'SET_VIEW_MODE', mode: v.mode }) }}
+              >
+                <Icon name={v.icon} size={14} /> {v.label}
+              </button>
+            ))}
+            <div className="menu-sep" role="separator" />
             <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); resetPhotos() }}>
               <Icon name="reset" size={14} /> {hasSelection ? `Reset (${selectedCount})` : 'Reset edits'}
             </button>
@@ -155,7 +174,7 @@ export default function EditActionsBar() {
         >
           <Icon name="download" size={15} />
           <span className="btn-label">Export</span>
-          <Icon name="chevronDown" size={13} />
+          <Icon name="chevronDown" size={13} className="hide-mobile" />
         </button>
         {exportMenuOpen && (
           <div className="dropdown-menu" role="menu">

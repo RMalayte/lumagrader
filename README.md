@@ -42,6 +42,19 @@ Push to `main` — `.github/workflows/deploy.yml` lints, builds and publishes `d
 GitHub Pages. One-time setup: repo **Settings → Pages → Build and deployment → Source:
 GitHub Actions**. The site appears at `https://<username>.github.io/<repo>/`.
 
+## Unsaved work & mobile touch (v0.6.3)
+
+- **Crash/close recovery:** while a session has unsaved changes it is mirrored to IndexedDB
+  (debounced, and flushed when the page is hidden). On the next start you're asked to
+  **Restore** or **Discard** it. Saving the project clears it. The browser's "Leave site?"
+  warning is still shown where supported (desktop, Android Chrome) — iOS Safari and installed
+  apps often close without it, which is why recovery exists.
+- **Touch sliders:** on touch screens a slider only moves when you press its handle and slide
+  sideways (relative, no jumps); swiping over sliders scrolls the panel. Double-tap the handle
+  to reset. The curve graph adds points on a tap, not on a swipe.
+- **Bigger photo on phones:** no toolbar row — undo/redo/filmstrip sit in the header, and
+  Before/After, Crop, Fullscreen float over the photo. The tool sheet grows while Curves is open.
+
 ## Mobile viewer (v0.6.2)
 
 Lightroom-Mobile-style layout under 860 px: one-row header (view icons, "⋯" menu for Reset /

@@ -440,3 +440,41 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
   .app-logo{height:18px;}
   .view-toggle .tbtn,.header-right .tbtn{min-width:32px;padding:4px 5px;}
 }
+
+/* Touch screens: sliders move only from their handle (see Slider.jsx onTrackPointerDown). */
+.slider-track-wrap{position:relative;}
+@media (pointer:coarse){
+  .slider-track-wrap{touch-action:pan-y;padding:4px 0;}
+  .slider-track-wrap .lg-slider{pointer-events:none;height:28px;}
+  .slider-track-wrap .lg-slider::-webkit-slider-thumb{width:22px;height:22px;margin-top:-9px;}
+  .slider-track-wrap .lg-slider::-moz-range-thumb{width:22px;height:22px;}
+  .slider-track-wrap.dragging .lg-slider::-webkit-slider-thumb{transform:scale(1.2);box-shadow:0 0 0 6px rgba(47,128,237,.35);}
+  .slider-track-wrap.dragging .lg-slider::-moz-range-thumb{transform:scale(1.2);box-shadow:0 0 0 6px rgba(47,128,237,.35);}
+}
+@media (pointer:coarse){.curve-svg{touch-action:pan-y;}}
+
+/* Mobile v0.6.3 — photo gets the full area under a single header row. */
+.menu-sep{height:1px;background:var(--line);margin:4px 2px;}
+.dropdown-menu .is-current{color:var(--accent);}
+@media(max-width:859px){
+  .header-quick{display:flex!important;gap:2px;margin-left:auto;}
+  .app-header.is-editing .view-toggle{display:none;}
+  .app-header.is-editing .header-right{margin-left:4px;}
+  .app-logo{height:20px;}
+  .preview-toolbar{display:none;}
+  .photo-fabs{position:absolute;top:8px;right:8px;z-index:22;display:flex!important;flex-direction:column;gap:8px;}
+  .fab{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:rgba(17,17,17,.62);border:1px solid rgba(255,255,255,.12);color:#fff;backdrop-filter:blur(6px);cursor:pointer;padding:0;}
+  .fab.active{background:var(--accent);border-color:var(--accent);}
+  .zoom-badge{position:absolute;top:8px;left:8px;z-index:22;display:inline-flex!important;background:rgba(17,17,17,.72);color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:5px 10px;font-size:12px;font-variant-numeric:tabular-nums;}
+  .sheet-content{height:26dvh;min-height:150px;}
+  .sheet-tab{min-height:40px;}
+  .canvasArea.is-fullscreen{padding:0;}
+}
+@media(max-width:374px){
+  .header-quick .tbtn,.header-right .tbtn{min-width:30px;padding:4px;}
+  .app-logo{height:16px;}
+}
+@media(max-width:859px){
+  .sheet-content.is-tall{height:50dvh;}
+  .curve-svg{display:block;width:min(100%,38dvh);margin:0 auto;}
+}

@@ -215,6 +215,10 @@ function rawReducer(state, action) {
     case 'SET_CURRENT_BAND':
       return { ...state, currentBand: action.band }
 
+    // Restored-from-recovery sessions are still unsaved work.
+    case 'MARK_DIRTY':
+      return state.isDirty ? state : { ...state, isDirty: true }
+
     case 'LOAD_PROJECT':
       return {
         ...state,

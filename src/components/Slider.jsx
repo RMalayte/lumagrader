@@ -2,6 +2,10 @@ import { useEffect, useId, useRef, useState } from 'react'
 import Icon from './Icon.jsx'
 import { setInteracting } from '../engine/interaction'
 
+// Must match the thumb size in CSS for touch screens (App.css, pointer: coarse).
+const THUMB_PX = 22
+const HANDLE_HIT = 26 // px either side of the handle centre that count as "on the handle"
+
 function decimalsOf(step) {
   const s = String(step)
   return s.includes('.') ? s.split('.')[1].length : 0
@@ -21,6 +25,8 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const draftRef = useRef(null)
+  const rangeRef = useRef(null)
+  const lastTapRef = useRef(0)
   const decimals = decimalsOf(step)
   const shown = Number(value).toFixed(decimals)
   const isDefault = Number(value) === Number(defaultValue)
@@ -55,6 +61,67 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
     }
     window.addEventListener('pointerup', end)
     window.addEventListener('pointercancel', end)
+  }
+
+  /**
+   * Touch screens: the native range input ignores pointers (CSS, pointer: coarse), so a
+   * finger scrolling the panel can't bump a value. Only a press that lands on the handle
+   * (±HANDLE_HIT px) and then moves sideways changes it — relative to where it started, so
+   * the value never jumps. Double-tap the handle = reset. Vertical moves scroll the panel.
+   */
+  function onTrackPointerDown(e) {
+    const input = rangeRef.current
+    if (!input || window.getComputedStyle(input).pointerEvents !== 'none') return // mouse/desktop: native input
+    const rect = input.getBoundingClientRect()
+    const thumbX = rect.left + THUMB_PX / 2 + (current / 100) * (rect.width - THUMB_PX)
+    if (Math.abs(e.clientX - thumbX) > HANDLE_HIT) return // not on the handle → let the page scroll
+
+    const now = performance.now()
+    if (now - lastTapRef.current < 320) {
+      lastTapRef.current = 0
+      if (Number(value) !== Number(defaultValue)) applyValue(defaultValue)
+      return
+    }
+    lastTapRef.current = now
+
+    const target = e.currentTarget
+    const pointerId = e.pointerId
+    const x0 = e.clientX
+    const y0 = e.clientY
+    const v0 = Number(value)
+    const perPx = (max - min) / Math.max(1, rect.width - THUMB_PX)
+    let dragging = false
+    try { target.setPointerCapture(pointerId) } catch { /* ignore */ }
+
+    function move(ev) {
+      if (ev.pointerId !== pointerId) return
+      const dx = ev.clientX - x0
+      if (!dragging) {
+        if (Math.abs(dx) < 4 || Math.abs(dx) < Math.abs(ev.clientY - y0)) return // dead zone / vertical
+        dragging = true
+        lastTapRef.current = 0
+        onBegin?.()
+        setInteracting(true)
+        target.classList.add('dragging')
+      }
+      const raw = Math.min(max, Math.max(min, v0 + dx * perPx))
+      const snapped = Number((Math.round(raw / step) * step).toFixed(decimals))
+      onChange(snapped)
+    }
+    function end(ev) {
+      if (ev.pointerId !== pointerId) return
+      target.removeEventListener('pointermove', move)
+      target.removeEventListener('pointerup', end)
+      target.removeEventListener('pointercancel', end)
+      target.classList.remove('dragging')
+      if (dragging) {
+        setInteracting(false)
+        onCommit?.()
+      }
+    }
+    target.addEventListener('pointermove', move)
+    target.addEventListener('pointerup', end)
+    target.addEventListener('pointercancel', end)
   }
 
   function finishTyping(apply) {
@@ -122,7 +189,9 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
         </div>
       </div>
       {children}
+      <div className="slider-track-wrap" onPointerDown={onTrackPointerDown}>
       <input
+        ref={rangeRef}
         id={inputId}
         className="lg-slider"
         type="range"
@@ -139,6 +208,7 @@ export default function Slider({ label, value, min, max, step = 1, defaultValue 
         onChange={(e) => onChange(Number(e.target.value))}
         onDoubleClick={() => applyValue(defaultValue)}
       />
+      </div>
     </div>
   )
 }

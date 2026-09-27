@@ -72,7 +72,7 @@ function EmptyState({ onFiles, onFolder, progress }) {
   )
 }
 
-export default function CanvasPreview({ stripOpen = false, onToggleStrip = null }) {
+export default function CanvasPreview() {
   const { state, dispatch, undo, redo } = useProject()
   const { importFiles, importFolder, progress } = useImportPhotos()
   const canvasRef = useRef(null)
@@ -435,9 +435,6 @@ export default function CanvasPreview({ stripOpen = false, onToggleStrip = null 
     <div className={'col canvasArea' + (isFullscreen ? ' is-fullscreen' : '') + (dragOver ? ' is-dragover' : '')} ref={areaRef} {...dropHandlers}>
       <div className="preview-toolbar" role="toolbar" aria-label="Photo view">
         <div className="toolbar-group">
-          {onToggleStrip && (
-            <ToolbarButton icon="filmstrip" label="Photos" onClick={onToggleStrip} active={stripOpen} title={stripOpen ? 'Hide filmstrip' : 'Show filmstrip (or swipe the photo)'} />
-          )}
           <ToolbarButton icon="undo" label="Undo" onClick={() => undo(active.id)} disabled={!canUndo} title="Undo (Ctrl/⌘+Z)" />
           <ToolbarButton icon="redo" label="Redo" onClick={() => redo(active.id)} disabled={!canRedo} title="Redo (Ctrl/⌘+Shift+Z)" />
         </div>
@@ -482,6 +479,23 @@ export default function CanvasPreview({ stripOpen = false, onToggleStrip = null 
           </div>
         </div>
         {holdBefore && <div className="hold-before-label" aria-live="polite">Before</div>}
+        {/* Mobile: the toolbar row is hidden — its view tools float over the photo instead. */}
+        <div className="photo-fabs show-mobile" role="toolbar" aria-label="Photo view">
+          <button type="button" className={'fab' + (compareOn ? ' active' : '')} onClick={() => setCompareOn((v) => !v)} aria-pressed={compareOn} aria-label="Before / After" title="Before / After (or touch & hold the photo)">
+            <Icon name="compare" size={17} />
+          </button>
+          <button type="button" className="fab" onClick={() => setCropMode(true)} aria-label="Crop" title="Crop">
+            <Icon name="crop" size={17} />
+          </button>
+          <button type="button" className="fab" onClick={toggleFullscreen} aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'} title="Fullscreen">
+            <Icon name={isFullscreen ? 'shrink' : 'expand'} size={17} />
+          </button>
+        </div>
+        {zoom !== 1 && !compareOn && (
+          <button type="button" className="zoom-badge show-mobile" onClick={() => setZoom(1)} aria-label={`Zoom ${pct}%. Tap to fit`}>
+            {pct}% · Fit
+          </button>
+        )}
         {!preview && !compareOn && (
           <div className="stage-loading" role="status">
             <span className="spinner" aria-hidden="true" /> Loading photo…

@@ -8,6 +8,7 @@ import { useProject } from './store/ProjectContext.jsx'
 import { useSaveProject } from './hooks/useSaveProject.js'
 import { shouldIgnoreShortcut, isMod } from './engine/keyboard.js'
 import { useMediaQuery, MOBILE_QUERY } from './hooks/useMediaQuery.js'
+import { useSessionRecovery } from './hooks/useSessionRecovery.js'
 import logo from './assets/logo-wordmark.webp'
 
 // Loaded on first use to keep the initial download small.
@@ -37,6 +38,9 @@ export default function App() {
     })
   }, [])
   const { state, dispatch, undo, redo } = useProject()
+  useSessionRecovery()
+  const activePhoto = state.images.find((im) => im.id === state.activeId)
+  const editingPhoto = !!activePhoto && state.viewMode !== 'catalog'
   const { saveProject, saving, hasImages } = useSaveProject()
   const [showShortcuts, setShowShortcuts] = useState(false)
   const closeShortcuts = useCallback(() => setShowShortcuts(false), [])
@@ -98,7 +102,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
+      <header className={'app-header' + (editingPhoto ? ' is-editing' : '')}>
         <div className="header-left">
           <img src={logo} alt="LumaGrader by Rax" className="app-logo" width="508" height="120" />
           {state.currentProjectName && (
@@ -123,6 +127,23 @@ export default function App() {
             </button>
           ))}
         </nav>
+        {editingPhoto && (
+          // Mobile only: filmstrip + undo/redo live in the header so the photo gets the
+          // whole area below it (the preview toolbar row is hidden on phones).
+          <div className="header-quick show-mobile" role="toolbar" aria-label="Photo history">
+            {state.viewMode !== 'loupe' && (
+              <button type="button" className={'tbtn icon-only' + (stripOpen ? ' active' : '')} onClick={toggleStrip} aria-pressed={stripOpen} aria-label={stripOpen ? 'Hide filmstrip' : 'Show filmstrip'} title={stripOpen ? 'Hide filmstrip' : 'Show filmstrip (or swipe the photo)'}>
+                <Icon name="filmstrip" size={16} />
+              </button>
+            )}
+            <button type="button" className="tbtn icon-only" onClick={() => undo(activePhoto.id)} disabled={!activePhoto.history.past.length} aria-label="Undo" title="Undo">
+              <Icon name="undo" size={16} />
+            </button>
+            <button type="button" className="tbtn icon-only" onClick={() => redo(activePhoto.id)} disabled={!activePhoto.history.future.length} aria-label="Redo" title="Redo">
+              <Icon name="redo" size={16} />
+            </button>
+          </div>
+        )}
         <div className="header-right">
           {state.viewMode !== 'catalog' && <EditActionsBar />}
           <button
@@ -149,10 +170,7 @@ export default function App() {
         ) : (
           <>
             {state.viewMode !== 'loupe' && (!isMobile || stripOpen) && <ThumbnailStrip />}
-            <CanvasPreview
-              stripOpen={stripOpen}
-              onToggleStrip={isMobile && state.viewMode !== 'loupe' ? toggleStrip : null}
-            />
+            <CanvasPreview />
             {state.viewMode !== 'loupe' && <ControlsPanel />}
           </>
         )}

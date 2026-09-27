@@ -161,7 +161,8 @@ export default function ControlsPanel() {
   return (
     <aside className="col controls controls-sheet" aria-label="Editing panels">
       {group && !sheetCollapsed && (
-        <div className="sheet-content" id="sheet-content">
+        // The curve graph needs room: the sheet grows while Curves is open (photo shrinks, like LR Mobile).
+        <div className={'sheet-content' + (state.openAccordionId === 'curves' ? ' is-tall' : '')} id="sheet-content">
           {selectionHint}
           {group.render()}
         </div>

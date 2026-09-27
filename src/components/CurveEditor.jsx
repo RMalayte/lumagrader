@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import Accordion from './Accordion.jsx'
 import { CURVE_CHANNELS, defaultCurvePoints, isIdentityCurve, makeCurve } from '../engine/curvePoints'
@@ -25,6 +25,15 @@ export default function CurveEditor() {
   const { state, liveUpdate, beginEdit, commitEdit, commitPatch } = useProject()
   const active = state.images.find((im) => im.id === state.activeId)
   const svgRef = useRef(null)
+  // Touch: the graph lets the panel scroll (touch-action: pan-y), except when a finger lands
+  // on a point handle — then scrolling is blocked so the point can be dragged in any direction.
+  const setSvgRef = useCallback((el) => {
+    if (svgRef.current?._blockScroll) svgRef.current.removeEventListener('touchstart', svgRef.current._blockScroll)
+    svgRef.current = el
+    if (!el) return
+    el._blockScroll = (ev) => { if (ev.target.closest?.('.curve-handle')) ev.preventDefault() }
+    el.addEventListener('touchstart', el._blockScroll, { passive: false })
+  }, [])
   const [channelId, setChannelId] = useState('rgb')
 
   if (!active) return null
@@ -83,8 +92,31 @@ export default function CurveEditor() {
   }
 
   // Press on empty graph area → add a point there and keep dragging it.
+  // Mouse: press on empty graph adds a point and keeps dragging it.
+  // Touch: only a TAP adds a point (a swipe scrolls the panel instead — no accidental points).
   function addPoint(e) {
     if (e.button !== undefined && e.button !== 0) return
+    if (e.pointerType !== 'mouse') {
+      const x0 = e.clientX, y0 = e.clientY, t0 = performance.now(), id = e.pointerId
+      let moved = false
+      const move = (ev) => { if (ev.pointerId === id && Math.hypot(ev.clientX - x0, ev.clientY - y0) > 8) moved = true }
+      const end = (ev) => {
+        if (ev.pointerId !== id) return
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', end)
+        window.removeEventListener('pointercancel', end)
+        if (ev.type === 'pointerup' && !moved && performance.now() - t0 < 500) {
+          const { sx, sy } = pointerPos(ev)
+          const { x, y } = fromSvg(sx, sy)
+          if (x <= 0 || x >= 255 || sorted.some((p) => Math.abs(p.x - x) < MIN_GAP)) return
+          commitPatch(active.id, { [channel.key]: [...sorted, { x, y }].sort((a, b) => a.x - b.x) })
+        }
+      }
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', end)
+      window.addEventListener('pointercancel', end)
+      return
+    }
     e.preventDefault()
     const { sx, sy } = pointerPos(e)
     const { x, y } = fromSvg(sx, sy)
@@ -139,7 +171,7 @@ export default function CurveEditor() {
         )}
       </div>
       <svg
-        ref={svgRef}
+        ref={setSvgRef}
         viewBox={`0 0 ${SIZE} ${SIZE}`}
         className="curve-svg"
         onPointerDown={addPoint}
@@ -159,14 +191,14 @@ export default function CurveEditor() {
         {sorted.map((p, i) => {
           const { sx, sy } = toSvg(p.x, p.y)
           return (
-            <g key={i} onPointerDown={(e) => startDrag(i, e)} onDoubleClick={(e) => removePoint(i, e)}>
+            <g key={i} className="curve-handle" onPointerDown={(e) => startDrag(i, e)} onDoubleClick={(e) => removePoint(i, e)}>
               <circle cx={sx} cy={sy} r="12" className="curve-hit" />
               <circle cx={sx} cy={sy} r="5" className="curve-point" style={{ stroke: accent }} />
             </g>
           )
         })}
       </svg>
-      <p className="panel-hint">Tap or drag to add a point · drag to move · double-click or drag off to remove</p>
+      <p className="panel-hint">Tap to add a point · drag a point to move · drag it off the graph (or double-click) to remove</p>
     </Accordion>
   )
 }
