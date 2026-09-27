@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { diagnosticsText } from '../engine/gpuDiagnostics'
+import { perfEnabled, setPerfEnabled, perfSummaryText } from '../engine/perfStats'
 import { CHANGELOG } from '../changelog'
 import { APP_VERSION, BUILD_DATE, ReleaseNotes } from './ReleaseNotes.jsx'
 import logo from '../assets/logo-wordmark.webp'
@@ -65,7 +66,8 @@ export default function AboutDialog({ onClose }) {
 function Diagnostics() {
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState(false)
-  const text = open ? diagnosticsText() : ''
+  const [meter, setMeter] = useState(perfEnabled())
+  const text = open ? diagnosticsText() + '\n' + perfSummaryText() : ''
   async function copy() {
     try {
       await navigator.clipboard.writeText(text)
@@ -82,6 +84,10 @@ function Diagnostics() {
       </button>
       {open && (
         <>
+          <label className="checkbox-row diag-meter">
+            <input type="checkbox" checked={meter} onChange={(e) => { setPerfEnabled(e.target.checked); setMeter(e.target.checked) }} />
+            Performance meter on the photo — move some sliders, then come back here and copy
+          </label>
           <pre className="diag-text">{text}</pre>
           <button type="button" className="action secondary" onClick={copy}>{copied ? 'Copied ✓' : 'Copy diagnostics'}</button>
         </>

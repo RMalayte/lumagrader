@@ -1,5 +1,6 @@
 import { createContext, useContext, useReducer, useRef } from 'react'
 import { migrateSettings } from '../engine/defaults'
+import { markInput } from '../engine/perfStats'
 
 const ProjectContext = createContext(null)
 
@@ -19,7 +20,8 @@ const initialState = {
   currentProjectName: null,
   isDirty: false,     // true once anything has changed since the last successful Save Project
   eyedropperActive: false, // HSL "pick a color from the photo" mode
-  wbPickActive: false, // White Balance eyedropper: next tap on the photo sets Temp/Tint
+  wbPickActive: false, // White Balance selector target is on the photo (drag → live Temp/Tint)
+  wbPickBefore: null, // { wb, temp, tint } when the selector opened — Cancel restores it
   // Last preset applied, for its Amount slider: { name, ids, before: {id: settings}, full: {id: settings}, amount }
   presetSession: null,
   selectedMaskId: null,
@@ -161,7 +163,7 @@ function rawReducer(state, action) {
       return { ...state, images: state.images.map((im) => (im.id === action.id ? { ...im, rating: action.rating } : im)) }
 
     case 'SET_ACTIVE':
-      return { ...state, activeId: action.id }
+      return { ...state, activeId: action.id, wbPickActive: false, wbPickBefore: null }
 
     case 'SET_VIEW_MODE':
       return { ...state, viewMode: action.mode }
@@ -181,7 +183,7 @@ function rawReducer(state, action) {
       return { ...state, eyedropperActive: action.active, wbPickActive: action.active ? false : state.wbPickActive }
 
     case 'SET_WB_PICK':
-      return { ...state, wbPickActive: action.active, eyedropperActive: action.active ? false : state.eyedropperActive }
+      return { ...state, wbPickActive: action.active, wbPickBefore: action.active ? action.before || null : null, eyedropperActive: action.active ? false : state.eyedropperActive }
 
     case 'SET_PRESET_SESSION':
       return { ...state, presetSession: action.session }
@@ -377,6 +379,7 @@ export function ProjectProvider({ children }) {
   const pendingRef = useRef(new Map())
 
   function liveUpdate(id, patch) {
+    markInput()
     dispatch({ type: 'LIVE_UPDATE', id, patch })
   }
   function beginEdit(id) {
@@ -399,12 +402,15 @@ export function ProjectProvider({ children }) {
   // actions naturally respect a multi-photo selection in the filmstrip without callers changing.
   function commitSettings(id, settings) {
     const ids = state.selectedIds.length > 0 ? state.selectedIds : [id]
+    markInput()
     dispatch({ type: 'SET_SETTINGS_COMMIT_MULTI', ids, settings })
   }
   function undo(id) {
+    markInput()
     dispatch({ type: 'UNDO', id })
   }
   function redo(id) {
+    markInput()
     dispatch({ type: 'REDO', id })
   }
 

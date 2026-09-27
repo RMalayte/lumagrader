@@ -12,6 +12,7 @@ export const CHANGELOG = [
     items: [
       'Fixed: after locking the phone or switching apps, the editor could get stuck in a slow mode. It now stays fast.',
       '"Try GPU again" button when compatibility mode is on; automatic retry when you come back to the app.',
+      'White balance selector is now a target you drag onto something grey or white, with a magnifier and live preview; Done or Cancel when finished.',
     ],
   },
   {

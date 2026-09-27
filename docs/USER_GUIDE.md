@@ -66,10 +66,11 @@ like a normal app and works offline after the first visit.
 ### Color
 - **White balance:** RAW photos use **Temp** in Kelvin and **Tint**, starting from the camera's
   *As Shot* values. JPEGs get relative Temp/Tint sliders.
-  - **White balance selector** (eyedropper next to *White Balance*): tap it, then tap
-    something in the photo that should be neutral grey or white — a grey wall, a white shirt,
-    pavement, clouds. Temp and Tint are set so it turns neutral. Avoid blown-out whites
-    (the app will ask you to pick again) and strongly coloured things. Esc or *Cancel* stops it.
+  - **White balance selector** (eyedropper next to *White Balance*): a target appears on the
+    photo. Drag it (or tap to move it) onto something that should be neutral grey or white — a
+    grey wall, a white shirt, pavement, clouds. A magnifier above it shows the exact pixels, and
+    Temp/Tint update live. Blown-out whites and near-black areas are skipped (the target turns
+    red). **Done** keeps the result, **Cancel** (or Esc) puts back what you had.
 - **Vibrance** (boosts muted colours and protects skin tones) and **Saturation**.
 - **HSL:** Hue, Saturation and Luminance for eight colour ranges. Use the eyedropper to pick
   a colour on the photo.

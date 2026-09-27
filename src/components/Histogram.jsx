@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import { subscribePreview } from '../engine/previewBus'
+import { recordHistogram } from '../engine/perfStats'
 import { clippingFromHistogram, CLIP_THRESHOLD } from '../engine/clipping'
 
 // Read resolution. Big enough that small blown highlights (sky, speculars) aren't averaged
@@ -80,6 +81,7 @@ export default function Histogram() {
         b[data[i + 2]]++
       }
       if (canvasRef.current) drawHistogram(canvasRef.current, r, g, b)
+      recordHistogram(performance.now() - lastRunRef.current)
       setClip((prev) => {
         const next = clippingFromHistogram(r, g, b, data.length / 4)
         return prev.shadows === next.shadows && prev.highlights === next.highlights ? prev : next

@@ -1,7 +1,7 @@
 import { useProject } from '../store/ProjectContext'
 import { defaultSettings } from '../engine/defaults'
 import { kelvinToPos, posToKelvin, KELVIN_MIN, KELVIN_MAX, RAW_TINT_MAX } from '../engine/color'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import Accordion from './Accordion.jsx'
 import Slider from './Slider.jsx'
 import Icon from './Icon.jsx'
@@ -20,13 +20,30 @@ export default function ColorPanel() {
   const active = state.images.find((im) => im.id === state.activeId)
   const picking = state.wbPickActive
 
-  // Esc cancels the White Balance eyedropper.
+  // White Balance selector: Done keeps the picked balance, Cancel puts back what was there.
+  const before = state.wbPickBefore
+  const donePicking = () => dispatch({ type: 'SET_WB_PICK', active: false })
+  const cancelPicking = () => {
+    if (active && before) {
+      const cur = active.settings
+      const changed = JSON.stringify(cur.wb ?? null) !== JSON.stringify(before.wb ?? null) || (cur.temp || 0) !== before.temp || (cur.tint || 0) !== before.tint
+      if (changed) commitPatch(active.id, before)
+    }
+    donePicking()
+  }
+  const keysRef = useRef({})
+  keysRef.current = { donePicking, cancelPicking }
   useEffect(() => {
     if (!picking) return
-    const onKey = (e) => { if (e.key === 'Escape') dispatch({ type: 'SET_WB_PICK', active: false }) }
+    const onKey = (e) => {
+      if (e.target?.closest?.('input, textarea, select')) return
+      if (e.key === 'Escape') keysRef.current.cancelPicking()
+      // Enter on a focused button is that button's own click.
+      if (e.key === 'Enter' && !e.target?.closest?.('button')) keysRef.current.donePicking()
+    }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [picking, dispatch])
+  }, [picking])
 
   if (!active) return null
   const s = active.settings
@@ -47,7 +64,7 @@ export default function ColorPanel() {
     <button
       type="button"
       className={'icon-btn wb-pick' + (picking ? ' active-pick' : '')}
-      onClick={() => dispatch({ type: 'SET_WB_PICK', active: !picking })}
+      onClick={() => (picking ? donePicking() : dispatch({ type: 'SET_WB_PICK', active: true, before: { wb: s.wb ?? null, temp: s.temp || 0, tint: s.tint || 0 } }))}
       aria-pressed={picking}
       aria-label="White balance selector: tap something neutral on the photo"
       title="White balance selector (tap a grey or white area)"
@@ -55,7 +72,15 @@ export default function ColorPanel() {
       <Icon name="eyedropper" size={16} />
     </button>
   )
-  const pickHint = picking && <p className="panel-hint wb-pick-hint">Tap something on the photo that should be neutral grey or white. <button type="button" className="link-btn" onClick={() => dispatch({ type: 'SET_WB_PICK', active: false })}>Cancel</button></p>
+  const pickHint = picking && (
+    <div className="wb-pick-bar">
+      <p className="panel-hint">Drag the target onto something that should be grey or white — the magnifier shows the exact spot.</p>
+      <div className="wb-pick-actions">
+        <button type="button" className="action secondary" onClick={cancelPicking}>Cancel</button>
+        <button type="button" className="action primary" onClick={donePicking}>Done</button>
+      </div>
+    </div>
+  )
 
   let wbBlock
   if (asShot) {

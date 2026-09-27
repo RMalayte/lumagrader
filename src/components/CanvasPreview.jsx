@@ -13,10 +13,10 @@ import { shouldIgnoreShortcut, isMod } from '../engine/keyboard'
 import { rgbToHsl, HSL_BANDS, BAND_HUE } from '../engine/hsl'
 import { useImportPhotos, FILE_ACCEPT } from '../hooks/useImportPhotos'
 import { usePreview, useFullImage, useInteracting } from '../hooks/useImageSources'
-import { getDragProxy, previewSizeFor, peekPreview } from '../engine/imageStore'
-import { sampleNeutral } from '../engine/wbPicker'
-import { solveWhiteBalance } from '../engine/color'
-import { getProfileBias } from '../engine/colorProfiles'
+import { getDragProxy, previewSizeFor } from '../engine/imageStore'
+import WbPickerOverlay from './WbPickerOverlay.jsx'
+import PerfHud from './PerfHud.jsx'
+import { perfEnabled, recordFrame } from '../engine/perfStats'
 import CompareSlider from './CompareSlider.jsx'
 import CropOverlay from './CropOverlay.jsx'
 import MaskCanvasOverlay from './MaskCanvasOverlay.jsx'
@@ -85,7 +85,7 @@ function EmptyState({ onFiles, onFolder, progress }) {
 }
 
 export default function CanvasPreview() {
-  const { state, dispatch, undo, redo, commitPatch } = useProject()
+  const { state, dispatch, undo, redo } = useProject()
   const { importFiles, importFolder, progress } = useImportPhotos()
   const canvasRef = useRef(null)
   // The preview canvas unmounts for Before/After and Crop; release its WebGL context then,
@@ -269,8 +269,18 @@ export default function CanvasPreview() {
       // While dragging a non-Detail slider, sharpening/noise reduction wait for the release.
       const fast = !!dragProxy && state.openAccordionId !== 'detail'
       const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : { ...effectiveSettings(active), _maskOverlayId: overlayId, _fastPreview: fast }
+      const measure = perfEnabled()
+      const t0 = measure ? performance.now() : 0
       try {
         renderImage(canvas, source, s, state.luts, { forceCanvas })
+        if (measure) {
+          const t1 = performance.now()
+          // 1-pixel read = wait for the GPU to finish this frame (meter only; it costs a stall).
+          const gl = forceCanvas ? null : canvas.getContext('webgl2')
+          if (gl) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4))
+          const t2 = performance.now()
+          recordFrame({ start: t0, cpu: t1 - t0, gpu: gl ? t2 - t1 : null, dragging: !!dragProxy, outW: canvas.width, outH: canvas.height, mode: forceCanvas ? 'compat' : gpuTrouble ? 'GPU-lite' : 'GPU' })
+        }
       } catch (err) {
         recoverFromGpuFailure(err)
         return
@@ -286,7 +296,7 @@ export default function CanvasPreview() {
       if (clipCanvasRef.current && !dragProxy) drawClippingOverlay(canvas, clipCanvasRef.current, state.clipping)
     })
     return () => cancelAnimationFrame(raf)
-  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, forceCanvas, recoverFromGpuFailure, state.maskOverlay, state.selectedMaskId, state.openAccordionId, toast])
+  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, forceCanvas, gpuTrouble, recoverFromGpuFailure, state.maskOverlay, state.selectedMaskId, state.openAccordionId, toast])
 
   // Track the stage's real size. A ResizeObserver (not window resize) is needed because the
   // stage also shrinks when the mobile tool sheet opens or the header wraps.
@@ -498,7 +508,6 @@ export default function CanvasPreview() {
   // Samples the clicked pixel from the already-graded canvas and jumps the HSL panel to
   // whichever of the 8 bands that color's hue is closest to.
   function pickColor(e) {
-    if (state.wbPickActive) return pickWhiteBalance(e)
     if (!state.eyedropperActive || !canvasRef.current) return
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
@@ -527,42 +536,6 @@ export default function CanvasPreview() {
     }
     dispatch({ type: 'SET_CURRENT_BAND', band: nearest })
     dispatch({ type: 'SET_EYEDROPPER', active: false })
-  }
-
-  // White balance eyedropper: sample the photo as shot (no WB or colour edits) around the
-  // tapped point and set Temp/Tint so that colour becomes neutral.
-  function pickWhiteBalance(e) {
-    const canvas = canvasRef.current
-    const preview = peekPreview(active.id)
-    if (!canvas || !preview) return
-    const rect = canvas.getBoundingClientRect()
-    const relX = (e.clientX - rect.left) / rect.width
-    const relY = (e.clientY - rect.top) / rect.height
-    if (relX < 0 || relY < 0 || relX > 1 || relY > 1) return
-    let sample
-    try {
-      sample = sampleNeutral(preview, active.settings, relX, relY)
-    } catch (err) {
-      console.error('White balance pick failed', err)
-      toast('Could not read the photo there — try again', { type: 'error' })
-      return
-    }
-    if (sample.clipped || sample.tooDark) {
-      toast(sample.clipped ? 'That spot is too bright (blown out) — tap a grey or off-white area' : 'That spot is too dark — tap a lighter grey area', { type: 'error' })
-      return // keep the picker on for another try
-    }
-    const s = effectiveSettings(active)
-    const res = solveWhiteBalance(sample.rgb, s, getProfileBias(s.colorProfile).temp || 0)
-    if (s.asShotWB) {
-      commitPatch(active.id, { wb: res.wb })
-      const wb = res.wb || s.asShotWB
-      toast(`White balance: ${wb.kelvin} K, tint ${wb.tint > 0 ? '+' : ''}${wb.tint}${res.wb ? '' : ' (As Shot)'}`)
-    } else {
-      commitPatch(active.id, { temp: res.temp, tint: res.tint })
-      toast(`White balance: Temp ${res.temp > 0 ? '+' : ''}${res.temp}, Tint ${res.tint > 0 ? '+' : ''}${res.tint}`)
-    }
-    if (res.clipped) toast('That colour is too strong to make fully neutral — a grey or white area works best', { type: 'info', duration: 6000 })
-    dispatch({ type: 'SET_WB_PICK', active: false })
   }
 
   // ---- Drag & drop import (works on the empty state and on top of a photo) ---------------
@@ -656,11 +629,13 @@ export default function CanvasPreview() {
                 <canvas ref={clipCanvasRef} className="clip-overlay" hidden={!showClipping} aria-hidden="true" />
                 <MaskCanvasOverlay active={active} />
                 <SpotOverlay active={active} />
+                <WbPickerOverlay active={active} canvasRef={canvasRef} />
               </div>
             )}
           </div>
         </div>
         {holdBefore && <div className="hold-before-label" aria-live="polite">Before</div>}
+        <PerfHud />
         {forceCanvas && !compareOn && (
           <button type="button" className="compat-badge" onClick={() => retryGpu(false)} title="The preview is using the slower compatibility mode after a graphics problem. Tap to try the graphics chip (GPU) again.">
             <span className="compat-badge-dot" aria-hidden="true" />
@@ -705,7 +680,6 @@ export default function CanvasPreview() {
         )}
       </div>
       {state.eyedropperActive && <div className="eyedropper-hint">Click anywhere on the photo to pick a color</div>}
-      {state.wbPickActive && <div className="eyedropper-hint">Tap something that should be neutral grey or white</div>}
       {progress && <div className="import-pill">Importing {progress.done}/{progress.total}…</div>}
       {dropOverlay}
     </div>

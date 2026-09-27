@@ -1,7 +1,9 @@
 // Tone (Lightroom-style Exposure / Contrast / Highlights / Shadows / Whites / Blacks)
 //
 //  1. Pixels are converted to LINEAR light; everything below works in stops (EV = log2 light).
-//  2. Exposure: a gain in stops (±5), like Lightroom.
+//  2. Exposure: a gain in stops (±5), like Lightroom. Brightening has a highlight shoulder:
+//     tones up to EXPOSURE_KNEE get the full gain, brighter ones roll smoothly into white
+//     (the photo's old white lands exactly on white) instead of clipping flat.
 //  3. Highlights / Shadows (LOCAL): gains in stops chosen from the pixel's edge-aware
 //     local brightness ("base", see localBase.js) — not from the pixel alone — so regions get
 //     brighter/darker while local contrast and small bright/dark details survive.
@@ -93,8 +95,38 @@ export function localGainEV(baseEV, s) {
   return zoneGain(baseEV, s, LOCAL_ZONES)
 }
 
-/** Output light for a pixel at `v` EV (after exposure + local gain): Whites, Blacks, Contrast. */
+// ---- Exposure highlight shoulder --------------------------------------------------------
+// Linear light (after the exposure gain) up to the knee is untouched; above it,
+//   y = k + (1−k)·(1 − e^(−a·t)) / (1 − e^(−a·T)),  t = x − k,  T = 2^EV − k
+// with `a` chosen so the slope at the knee is 1 (no kink) and the old white (x = 2^EV) → 1.
+// Not calibrated against a side-by-side yet; the knee is the one knob (lower = gentler).
+export const EXPOSURE_KNEE = 0.4 // linear (≈ sRGB 170)
+let shoulderCache = { ev: NaN, a: 0 }
+function shoulderA(T, k) {
+  // Solve a / (1 − e^(−aT)) = 1 / (1 − k) by bisection (monotonic in a).
+  let lo = 1e-9, hi = 400
+  for (let i = 0; i < 80; i++) {
+    const m = (lo + hi) / 2
+    if (m / (1 - Math.exp(-m * T)) > 1 / (1 - k)) hi = m
+    else lo = m
+  }
+  return (lo + hi) / 2
+}
+/** Linear light after the exposure gain → with the highlight shoulder (EV > 0 only). */
+export function exposureShoulder(x, ev) {
+  const k = EXPOSURE_KNEE
+  if (!(ev > 0) || x <= k) return x
+  const T = Math.pow(2, ev) - k
+  if (T <= 1 - k) return x
+  if (shoulderCache.ev !== ev) shoulderCache = { ev, a: shoulderA(T, k) }
+  const a = shoulderCache.a
+  return k + ((1 - k) * (1 - Math.exp(-a * Math.min(x - k, T)))) / (1 - Math.exp(-a * T))
+}
+
+/** Output light for a pixel at `v` EV (after exposure + local gain): exposure shoulder, Whites, Blacks, Contrast. */
 export function globalToneY(v, s, profileContrast = 0) {
+  const ev = s.exposure || 0
+  if (ev > 0) v = Math.log2(exposureShoulder(Math.pow(2, v), ev))
   const y1 = Math.pow(2, v + zoneGain(v, s, GLOBAL_ZONES))
   const contrast = Math.max(-1, Math.min(1, ((s.contrast || 0) + profileContrast) / 100))
   const p = applyContrast(srgbEncode(y1), contrast)
