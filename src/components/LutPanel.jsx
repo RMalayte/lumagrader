@@ -9,8 +9,13 @@ export default function LutPanel() {
   const { toast } = useFeedback()
   const active = state.images.find((im) => im.id === state.activeId)
 
+  // No type filter on the picker: iPad greys out .cube (unknown type), so the content is checked.
   function importFiles(e) {
     Array.from(e.target.files).forEach((file) => {
+      if (file.size > 64 * 1024 * 1024) {
+        toast(`"${file.name}" is too large to be a .cube LUT`, { type: 'error' })
+        return
+      }
       const reader = new FileReader()
       reader.onload = (ev) => {
         const parsed = parseCube(ev.target.result)
@@ -57,7 +62,7 @@ export default function LutPanel() {
       )}
       <label className="action secondary file-btn">
         Import .cube LUT
-        <input type="file" accept=".cube" multiple hidden onChange={importFiles} />
+        <input type="file" multiple hidden onChange={importFiles} aria-label="Import .cube LUT files" />
       </label>
       {active.settings.lut && (
         <div style={{ marginTop: 10 }}>

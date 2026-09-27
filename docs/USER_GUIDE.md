@@ -98,7 +98,11 @@ Press **Crop** (`R`) to crop, straighten or rotate by 90°. Choose an aspect rat
     0% = your photo without the preset, 100% = the preset as made, up to 200% for a stronger
     version. Trying another preset keeps 0% as your original photo. The slider goes away once
     you edit something else (Undo brings it back).
-  - **Import presets:** LumaGrader `.json` files and `.xmp` presets (approximate).
+  - **Import presets:** Lightroom presets in any of their usual forms — `.xmp`, `.dng`
+    (how Lightroom Mobile presets are shared), `.lrtemplate` (older Lightroom Classic) or a
+    `.zip` pack of them — plus LumaGrader `.json` files. Pick several at once. Lightroom looks
+    are translated to the closest LumaGrader settings (approximate); masks, graduated filters
+    and spot removal inside a preset are skipped, and a DNG's crop is never applied.
   - **Export presets:** saves all your presets into one `.json` file, a good backup.
 - **Your LUTs:** import `.cube` LUT files and apply them with an adjustable strength.
 - To apply to several photos, select them first (Shift/Ctrl+click), or use **Copy to all**.

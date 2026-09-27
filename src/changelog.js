@@ -5,6 +5,15 @@ export const POPUP_FROM = '0.9.4'
 
 export const CHANGELOG = [
   {
+    version: '0.9.8',
+    date: '2026-09-27',
+    title: 'More Lightroom presets',
+    items: [
+      'Import Lightroom presets in every common form: .xmp, .dng (Lightroom Mobile), .lrtemplate (older Lightroom) or a .zip pack — now also on iPad.',
+      'Fixed: .xmp presets and .cube LUTs couldn\'t be picked on iPad.',
+    ],
+  },
+  {
     version: '0.9.7',
     date: '2026-09-27',
     title: 'Phone speed fix',

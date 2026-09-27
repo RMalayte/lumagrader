@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import { usePreview } from '../hooks/useImageSources'
-import { PRESETS, defaultSettings, defaultHsl, migrateSettings } from '../engine/defaults'
+import { PRESETS, defaultSettings, defaultHsl } from '../engine/defaults'
 import { defaultGeometry } from '../engine/geometry'
 import { savePresetToDB, deletePresetFromDB } from '../hooks/useProjectStore'
 import { renderToCanvas } from '../engine/pipeline'
@@ -159,46 +159,18 @@ export default function PresetChips() {
     a.click()
   }
 
-  // Accepts LumaGrader .json preset bundles and Lightroom/Camera Raw .xmp presets (many at once).
+  // Lightroom presets (.xmp, .dng from Lightroom Mobile, .lrtemplate), LumaGrader .json
+  // bundles, and .zip packs of them — many at once. The picker has no type filter: iPad and
+  // some Android pickers grey out file types they don't know, so files are checked by content.
   async function importPresets(e) {
     const files = Array.from(e.target.files || [])
     e.target.value = ''
     if (!files.length) return
+    const { importPresetFiles } = await import('../engine/presetImport')
     const taken = new Set([...Object.keys(PRESETS), ...Object.keys(state.customPresets)])
-    const uniqueName = (base) => {
-      let name = base
-      for (let n = 2; taken.has(name); n++) name = `${base} (${n})`
-      taken.add(name)
-      return name
-    }
-    const merged = {}
-    const notes = new Set()
-    const failures = []
-
-    for (const file of files) {
-      try {
-        if (file.size > 2 * 1024 * 1024) throw new Error('File is too large to be a preset.')
-        const text = await file.text()
-        if (/\.xmp$/i.test(file.name) || /<x:xmpmeta|camera-raw-settings/.test(text.slice(0, 4000))) {
-          const { parseXmpPreset } = await import('../engine/xmpPreset') // loaded on first XMP import
-          const result = parseXmpPreset(text, file.name)
-          const name = uniqueName(result.name)
-          merged[name] = result.settings
-          result.partial.forEach((p) => notes.add(p))
-          result.skipped.forEach((p) => notes.add(`${p} — not supported`))
-        } else {
-          const parsed = JSON.parse(text)
-          if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Not a presets file.')
-          // Only accept entries that look like settings objects — the file is user-provided.
-          for (const [name, settings] of Object.entries(parsed)) {
-            if (typeof name !== 'string' || name.length > 80 || !settings || typeof settings !== 'object' || Array.isArray(settings)) continue
-            merged[uniqueName(name)] = { ...defaultSettings(), ...migrateSettings(settings), geometry: defaultGeometry(), masks: [], spots: [] }
-          }
-        }
-      } catch (err) {
-        failures.push(`${file.name}: ${err.message || 'could not be read'}`)
-      }
-    }
+    const { presets, notes: noteList, failures } = await importPresetFiles(files, taken)
+    const merged = Object.fromEntries(presets.map((p) => [p.name, p.settings]))
+    const notes = new Set(noteList)
 
     try {
       for (const [name, settings] of Object.entries(merged)) await savePresetToDB(name, settings)
@@ -261,14 +233,14 @@ export default function PresetChips() {
       <button className="action secondary" style={{ width: '100%', marginTop: 6 }} onClick={saveCurrent}>
         Save current as preset
       </button>
-      <p className="panel-hint">Import supports Lightroom .xmp presets (approximate) and LumaGrader .json files.</p>
+      <p className="panel-hint">Import Lightroom presets — .xmp, .dng (Lightroom Mobile), .lrtemplate or a .zip of them (approximate) — and LumaGrader .json files.</p>
       <div className="btnrow" style={{ marginTop: 6 }}>
         <button className="action secondary" onClick={exportPresets} disabled={!Object.keys(state.customPresets).length}>
           Export presets
         </button>
         <label className="action secondary file-btn" style={{ marginTop: 0 }}>
           Import presets
-          <input type="file" accept=".json,.xmp,application/json,application/rdf+xml" multiple hidden onChange={importPresets} />
+          <input type="file" multiple hidden onChange={importPresets} aria-label="Import presets (.xmp, .dng, .lrtemplate, .zip, .json)" />
         </label>
       </div>
     </Accordion>
