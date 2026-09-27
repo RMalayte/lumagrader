@@ -84,21 +84,48 @@ export default function CanvasPreview() {
   // If the GPU gives up (too large / out of graphics memory — mostly phones at 1:1 zoom), the
   // canvas is stuck with a dead WebGL context and stays blank. Recover by mounting a fresh
   // canvas and capping the resolution used for zoom from then on.
+  // Phones also drop WebGL contexts when the browser goes to the background; that is not a
+  // failure — the canvas is just replaced quietly when the page is visible again.
+  // Escalation for real failures: 1st → lighter preview (zoom capped at 2048 px), 2nd →
+  // compatibility mode (software rendering, never blank; masks need the GPU).
   const [gpuTrouble, setGpuTrouble] = useState(false)
+  const [forceCanvas, setForceCanvas] = useState(false)
   const [canvasKey, setCanvasKey] = useState(0)
+  const failuresRef = useRef(0)
   const { toast } = useFeedback()
   const recoverFromGpuFailure = useCallback((reason) => {
     console.warn('Preview render failed — recovering with a fresh canvas:', reason)
-    setGpuTrouble((was) => {
-      if (!was) toast('Your device ran out of graphics memory at full size — showing a lighter preview. Export still works.', { type: 'error', duration: 7000 })
-      return true
-    })
+    if (document.hidden) {
+      // Lost while in the background (Android frees GPU memory): swap the canvas on return.
+      const onVisible = () => {
+        if (document.hidden) return
+        document.removeEventListener('visibilitychange', onVisible)
+        setCanvasKey((k) => k + 1)
+      }
+      document.addEventListener('visibilitychange', onVisible)
+      return
+    }
+    failuresRef.current += 1
+    if (failuresRef.current === 1) {
+      setGpuTrouble(true)
+      toast('Your device ran low on graphics memory — showing a lighter preview. Export still works.', { type: 'error', duration: 7000 })
+    } else if (failuresRef.current === 2) {
+      setForceCanvas(true)
+      toast('Graphics unavailable — switched to compatibility mode. Editing works (a bit slower); masks are off until you reload.', { type: 'error', duration: 9000 })
+    } else if (failuresRef.current > 4) {
+      return // give up remounting; compatibility mode should never get here
+    }
     setCanvasKey((k) => k + 1)
   }, [toast])
   const setCanvasEl = useCallback((el) => {
     if (!el && canvasRef.current) releaseCanvas(canvasRef.current)
     canvasRef.current = el
-    if (el) el.addEventListener('webglcontextlost', () => { if (!el._released) recoverFromGpuFailure('webglcontextlost') }, { once: true })
+    if (el) {
+      el.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault()
+        if (!el._released) recoverFromGpuFailure('webglcontextlost')
+      }, { once: true })
+    }
   }, [recoverFromGpuFailure])
   const clipCanvasRef = useRef(null)
   const areaRef = useRef(null)
@@ -134,9 +161,9 @@ export default function CanvasPreview() {
   // there costs hundreds of MB of graphics memory (blank canvas) for no visible gain.
   const coarse = useMediaQuery('(pointer: coarse)')
   const wantFullRes = !!active && active.width > previewW * 1.01 && fitW > 0 && fitW * zoom * dpr > previewOutW * 1.05 && (!coarse || zoom > 1.01)
-  // Full-size zoom is capped to what the GPU can take (and 4096 px on phones/tablets; 2048 px
+  // Full-size zoom is capped to what the GPU can take (and 3072 px on phones/tablets; 2048 px
   // after a GPU failure) — beyond that the canvas would stay blank.
-  const fullCap = gpuTrouble ? 2048 : Math.min(gpuMaxDimension(), coarse ? 4096 : Infinity)
+  const fullCap = gpuTrouble ? 2048 : Math.min(gpuMaxDimension(), coarse ? 3072 : Infinity)
   const fullImage = useFullImage(active, wantFullRes, fullCap)
   const oneToOneZoom = fitW > 0 ? fullOutW / (fitW * dpr) : 1
   const maxZoom = Math.max(FIT_MAX_ZOOM, oneToOneZoom)
@@ -166,7 +193,7 @@ export default function CanvasPreview() {
       const overlayId = state.maskOverlay && state.openAccordionId === 'masks' ? state.selectedMaskId : null
       const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : { ...effectiveSettings(active), _maskOverlayId: overlayId }
       try {
-        renderImage(canvas, source, s, state.luts)
+        renderImage(canvas, source, s, state.luts, { forceCanvas })
       } catch (err) {
         recoverFromGpuFailure(err)
         return
@@ -176,7 +203,7 @@ export default function CanvasPreview() {
       if (clipCanvasRef.current && !dragProxy) drawClippingOverlay(canvas, clipCanvasRef.current, state.clipping)
     })
     return () => cancelAnimationFrame(raf)
-  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, recoverFromGpuFailure, state.maskOverlay, state.selectedMaskId, state.openAccordionId])
+  }, [active, preview, fullImage, wantFullRes, interacting, state.luts, compareOn, cropMode, state.clipping, holdBefore, canvasKey, forceCanvas, recoverFromGpuFailure, state.maskOverlay, state.selectedMaskId, state.openAccordionId])
 
   // Track the stage's real size. A ResizeObserver (not window resize) is needed because the
   // stage also shrinks when the mobile tool sheet opens or the header wraps.

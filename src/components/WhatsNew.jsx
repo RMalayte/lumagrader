@@ -17,6 +17,7 @@ function unseenEntries() {
   const seen = readSeen()
   if (seen && compareVersions(seen, APP_VERSION) >= 0) return null
   const list = CHANGELOG.filter((e) =>
+    !e.quiet &&
     compareVersions(e.version, POPUP_FROM) >= 0 &&
     compareVersions(e.version, APP_VERSION) <= 0 &&
     (!seen || compareVersions(e.version, seen) > 0))

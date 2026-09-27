@@ -1,9 +1,16 @@
 // User-facing release notes — newest first. All are listed in About; the "What's new" popup
-// after an update only shows versions from POPUP_FROM on.
+// after an update only shows versions from POPUP_FROM on. `quiet: true` = About only, no popup.
 // Keep items short and written for photographers, not developers.
 export const POPUP_FROM = '0.9.4'
 
 export const CHANGELOG = [
+  {
+    version: '0.9.5',
+    date: '2026-09-27',
+    title: 'Phone fix',
+    quiet: true,
+    items: ['Fixed: on some phones the photo could still go blank. The app now recovers by itself and switches to a compatibility mode if the graphics chip keeps failing.'],
+  },
   {
     version: '0.9.4',
     date: '2026-09-27',

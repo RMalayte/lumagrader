@@ -223,11 +223,14 @@ supports, and the app tells you when that happens.
   A project saved at one address (for example a local test copy) won't appear at another.
   Clearing browsing data or using incognito removes it too. Keep backups with **Export
   presets** and **Save to device**.
-- **The photo went blank on my phone.** The phone ran out of graphics memory. The app
-  recovers by itself with a lighter preview; zoom and export still work at a smaller size.
+- **"Ran low on graphics memory" / "compatibility mode".** The phone's graphics chip gave up
+  (often on low-memory phones or after switching apps). The app recovers by itself: first with a
+  lighter preview, then, if it keeps failing, in compatibility mode (slower, masks off). Reload
+  the page to try the graphics chip again.
 - **"RAW preview" badge:** this RAW couldn't be decoded, so the camera's embedded JPEG is used.
   Please [report it](https://github.com/RMalayte/lumagrader/issues) with the camera model.
-- **Masks do nothing:** masks need WebGL. Turn on hardware acceleration in your browser settings.
+- **Masks do nothing:** masks need WebGL. Turn on hardware acceleration in your browser settings,
+  and reload if the app switched to compatibility mode.
 - **Something else?** [Report a problem](https://github.com/RMalayte/lumagrader/issues). Please
   include your device, browser and what you did.
 

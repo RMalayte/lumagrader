@@ -26,7 +26,7 @@ export function makePreviewSource(img, maxSize = 1600) {
 // adjustment/tone/curve/LUT/HSL+vibrance/grade/vignette/grain pipeline applied.
 // All per-pixel passes (curve, tone zones, custom curve points, 3D LUT, HSL+vibrance,
 // grain) are combined into a single getImageData/putImageData cycle for performance.
-export function renderImage(canvas, source, s, luts = {}) {
+export function renderImage(canvas, source, s, luts = {}, { forceCanvas = false } = {}) {
   // Safety net: an ImageBitmap would upload to WebGL upside down (UNPACK_FLIP_Y is ignored
   // for bitmaps). Callers should pass canvases; this converts (slowly) if one slips through.
   if (typeof globalThis.ImageBitmap !== 'undefined' && source instanceof globalThis.ImageBitmap) {
@@ -38,6 +38,11 @@ export function renderImage(canvas, source, s, luts = {}) {
     source = c
   }
   const src = prepareSource(source, s)
+  // Compatibility mode (the preview's GPU kept failing): software rendering only.
+  if (forceCanvas) {
+    renderTonalCanvas2D(canvas, src, s, luts)
+    return
+  }
   let webglError
   try {
     renderTonalWebGL(canvas, src, s, luts)

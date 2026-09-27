@@ -59,5 +59,6 @@ stores the original files, settings, ratings, albums, snapshots and brush-mask P
 
 1. Bump `version` in `package.json` (and `package-lock.json`).
 2. Add an entry at the top of `CHANGELOG` in `src/changelog.js`, written for photographers.
-   It appears in About and in the "What's new" popup (versions from `POPUP_FROM` on).
+   It appears in About and in the "What's new" popup (versions from `POPUP_FROM` on;
+   `quiet: true` keeps a small fix out of the popup).
 3. `npm run lint && npm run build`, test on a phone, then push to `main`.
