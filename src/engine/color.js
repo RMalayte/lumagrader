@@ -381,3 +381,151 @@ export function withHue(r, g, b, h) {
   else [rr, gg, bb] = [c, 0, x]
   return [rr + mn, gg + mn, bb + mn]
 }
+
+// ---- Color Grading (Phase 3): Shadows / Midtones / Highlights / Global wheels -----------
+// Lightroom-style: each wheel has Hue (0–360, standard hue circle: 0 red, 120 green, 240 blue),
+// Saturation (0–100) and Luminance (−100…+100); Blending (0–100, default 50) widens the
+// overlap between the tonal ranges and Balance (−100…+100) moves them (positive = more of
+// the photo counts as highlights). Done in Oklab (perceptual): a wheel adds a chroma offset in
+// the wheel's hue direction weighted by how much a pixel belongs to its range — tints the
+// colour without changing its brightness — and Luminance shifts Oklab lightness.
+
+export const GRADE_WHEELS = ['shadows', 'midtones', 'highlights', 'global']
+export const defaultColorGrade = () => ({
+  shadows: { h: 0, s: 0, l: 0 },
+  midtones: { h: 0, s: 0, l: 0 },
+  highlights: { h: 0, s: 0, l: 0 },
+  global: { h: 0, s: 0, l: 0 },
+  blending: 50,
+  balance: 0,
+})
+// Calibrated (v0.8.1) to Rax's Lightroom comparison (Shadows 200°/40, Highlights 40°/40):
+// Lightroom's offset peaks at ≈0.025 Oklab chroma for Saturation 40, highlight Luminance +40
+// lifts ≈0.028 L; its shadow range fades out below L≈0.3 and reaches up to L≈0.58, the
+// highlight range starts at L≈0.6.
+const GRADE_CHROMA = 0.06 // Oklab chroma offset at Saturation 100
+const GRADE_LUM = 0.07 // Oklab lightness shift at Luminance ±100
+const PROPHOTO_TO_SRGB = [2.034076, -0.727334, -0.306742, -0.228813, 1.23173, -0.002917, -0.00857, -0.153287, 1.161856]
+
+export function isGradeActive(cg) {
+  return !!cg && GRADE_WHEELS.some((k) => cg[k] && (cg[k].s || cg[k].l))
+}
+
+export function linearToOklab(r, g, b) {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ]
+}
+export function oklabToLinear(L, a, b) {
+  const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3
+  const m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3
+  const s = (L - 0.0894841775 * a - 1.291485548 * b) ** 3
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s,
+  ]
+}
+
+/**
+ * Unit Oklab (a, b) direction of a wheel hue. Lightroom's wheel hues live in its wide working
+ * space, not sRGB: HSV(h, 0.8, 1) in ProPhoto primaries (gamma 1.3) matches the directions
+ * measured from Lightroom within ~5° (hue 200 → cyan-teal, not sky blue).
+ */
+export function hueDirection(h) {
+  const [r0, g0, b0] = withHue(1, 0, 0, h) // HSV (h, 1, 1)
+  const pp = [r0, g0, b0].map((c) => Math.pow(1 - 0.8 * (1 - c), 1.3))
+  const [r, g, b] = apply3(PROPHOTO_TO_SRGB, pp)
+  const [, A, B] = linearToOklab(r, g, b)
+  const len = Math.hypot(A, B) || 1
+  return [A / len, B / len]
+}
+
+/** Per-render constants for the grade (also fed to the shader). */
+export function gradeUniforms(cg) {
+  const g = cg || defaultColorGrade()
+  const tints = [], lums = []
+  for (const k of GRADE_WHEELS) {
+    const w = g[k] || { h: 0, s: 0, l: 0 }
+    const [dx, dy] = hueDirection(w.h || 0)
+    const amt = (Math.max(0, Math.min(100, w.s || 0)) / 100) * GRADE_CHROMA
+    tints.push(dx * amt, dy * amt)
+    lums.push((Math.max(-100, Math.min(100, w.l || 0)) / 100) * GRADE_LUM)
+  }
+  const blending = Math.max(0, Math.min(100, g.blending ?? 50)) / 100
+  const balance = Math.max(-100, Math.min(100, g.balance ?? 0)) / 100
+  return { tints, lums, blending, balance }
+}
+
+/** Range weights [shadows, midtones, highlights] for Oklab lightness L. */
+export function gradeWeights(L, blending, balance) {
+  const shift = -balance * 0.15
+  const width = 0.06 + 0.22 * blending
+  const ws = 1 - smoothstep(0.49 + shift - width, 0.49 + shift + width, L)
+  const wh = smoothstep(0.66 + shift - width, 0.66 + shift + width, L)
+  const d = 1 - Math.abs(L - (0.575 + shift)) / (0.22 + 0.3 * blending)
+  const wm = smoothstep(0, 1, d)
+  return [ws, wm, wh]
+}
+
+/** Applies the grade to one sRGB-encoded colour (0..1). */
+export function applyGrade(r, g, b, U) {
+  const [L, A, B] = linearToOklab(dec(Math.max(0, r)), dec(Math.max(0, g)), dec(Math.max(0, b)))
+  const [ws, wm, wh] = gradeWeights(L, U.blending, U.balance)
+  const w = [ws, wm, wh, 1]
+  const fade = smoothstep(0.05, 0.3, L) * (1 - 0.7 * smoothstep(0.93, 1, L)) // deep blacks / pure white stay clean (like LR)
+  let a = A, bb = B, l = L
+  for (let i = 0; i < 4; i++) {
+    a += U.tints[i * 2] * w[i] * fade
+    bb += U.tints[i * 2 + 1] * w[i] * fade
+    l += U.lums[i] * w[i]
+  }
+  const lin = oklabToLinear(Math.max(0, l), a, bb)
+  let [R, G, Bl] = lin
+  // Gamut fit toward the pixel's luminance (same as the tone stage).
+  const m = Math.max(R, G, Bl)
+  if (m > 1) {
+    const Y = lumaOf(R, G, Bl)
+    if (Y >= 1) { R = G = Bl = 1 } else { const t = (1 - Y) / (m - Y); R = Y + (R - Y) * t; G = Y + (G - Y) * t; Bl = Y + (Bl - Y) * t }
+  }
+  return [enc(Math.max(0, R)), enc(Math.max(0, G)), enc(Math.max(0, Bl))]
+}
+
+// ---- Grain (v0.8.1) -----------------------------------------------------------------------
+// Film-like, monochrome, fixed to the IMAGE (not to screen pixels), so the preview and a
+// full-size export show the same grain; deterministic (no flicker between renders); weaker in
+// deep shadows and bright highlights. Integer hash → identical in JS and GLSL.
+export const GRAIN_CELLS = 1300 // grain cells across the longer side of the photo
+
+/** Amount 0–100 → peak amplitude (encoded 0..1). 25 ≈ subtle, 100 ≈ heavy (like LR). */
+export const grainAmplitude = (amount) => Math.pow(Math.max(0, Math.min(100, amount)) / 100, 1.2) * 0.12
+
+function hash2(x, y) {
+  let h = (Math.imul(x | 0, 374761393) + Math.imul(y | 0, 668265263) + 1013904223) >>> 0
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0
+  h = (h ^ (h >>> 16)) >>> 0
+  return (h & 0xffffff) / 16777215
+}
+function valueNoise(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y)
+  let fx = x - xi, fy = y - yi
+  fx = fx * fx * (3 - 2 * fx); fy = fy * fy * (3 - 2 * fy)
+  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1)
+  return a + (b - a) * fx + (c - a) * fy + (a - b - c + d) * fx * fy
+}
+/** Grain offset for image position (u, v in 0..1) of an image with cellsX × cellsY cells. */
+export function grainAt(u, v, cellsX, cellsY, amp, lumaEnc) {
+  const x = u * cellsX, y = v * cellsY
+  const n = 0.7 * (valueNoise(x, y) - 0.5) + 0.3 * (valueNoise(x * 2.3 + 17.1, y * 2.3 + 5.3) - 0.5)
+  const w = 0.3 + 0.7 * 4 * lumaEnc * (1 - lumaEnc)
+  return n * 2 * amp * w
+}
+export function grainCells(w, h) {
+  const m = Math.max(w, h)
+  return [GRAIN_CELLS * (w / m), GRAIN_CELLS * (h / m)]
+}

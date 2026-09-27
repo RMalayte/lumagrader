@@ -34,7 +34,7 @@ export async function ingestPhoto(blob, isRaw, id) {
   } catch (err) {
     console.warn('RAW decode failed — using the embedded preview instead.', err)
     if (!embedded) throw err
-    return { ...(await makeImageEntry(embedded, id)), rawSource: 'embedded' }
+    return { ...(await makeImageEntry(embedded, id)), rawSource: 'embedded', rawError: String(err?.message || err).slice(0, 160) }
   }
 }
 
@@ -54,6 +54,7 @@ export function useImportPhotos() {
 
     const hadNone = state.images.length === 0
     const failed = []
+    const previewOnly = []
     let added = 0
     dispatch({ type: 'SET_IMPORT_PROGRESS', progress: { done: 0, total: files.length } })
 
@@ -77,6 +78,7 @@ export function useImportPhotos() {
           }],
         })
         if (hadNone && added === 0) dispatch({ type: 'SET_ACTIVE', id })
+        if (entry.rawSource === 'embedded') previewOnly.push(file.name)
         added++
       } catch (err) {
         console.warn('Failed to load', file.name, err)
@@ -90,6 +92,11 @@ export function useImportPhotos() {
     if (failed.length) {
       const names = failed.slice(0, 2).join(', ') + (failed.length > 2 ? ` +${failed.length - 2} more` : '')
       toast(`Couldn't open ${failed.length} file${failed.length === 1 ? '' : 's'}: ${names}`, { type: 'error', duration: 7000 })
+    }
+    if (previewOnly.length) {
+      // Visible, so a silent fallback to the camera's JPEG preview is never mistaken for the real RAW.
+      const names = previewOnly.slice(0, 2).join(', ') + (previewOnly.length > 2 ? ` +${previewOnly.length - 2} more` : '')
+      toast(`${names}: RAW data couldn't be decoded — using the camera preview. Reload the page and import again; if it keeps happening, check the console.`, { type: 'error', duration: 9000 })
     }
     if (skipped) toast(`Skipped ${skipped} unsupported file${skipped === 1 ? '' : 's'}`, { type: 'error' })
   }

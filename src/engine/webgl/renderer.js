@@ -3,7 +3,7 @@ import { VERT_SRC, FRAG_SRC, BLUR_FRAG_SRC, COMBINE_FRAG_SRC, MASK_FRAG_SRC, DET
 import { buildRgbCurveLUTs } from '../curvePoints'
 import { getBrushCanvas } from '../brushMaskStore'
 import { getProfileBias } from '../colorProfiles'
-import { wbMatrixFor } from '../color'
+import { wbMatrixFor, isGradeActive, gradeUniforms, grainAmplitude, grainCells } from '../color'
 import { buildLocalLUT, buildGlobalLUT, isToneActive, isLocalToneActive, LOCAL_LUT_SIZE, GLOBAL_LUT_SIZE } from '../tone'
 import { getLocalBaseMap } from '../localBase'
 
@@ -12,8 +12,8 @@ const MAIN_UNIFORM_NAMES = [
   'u_image', 'u_curvePointsLUT', 'u_cubeLut', 'u_useCubeLut', 'u_useCurvePoints',
   'u_localLUT', 'u_globalLUT', 'u_gfCoef', 'u_useTone', 'u_useLocal', 'u_exposureEV', 'u_sat', 'u_useWB', 'u_wbMatrix', 'u_curveStrength',
   'u_lutStrength', 'u_hslHue', 'u_hslSat', 'u_hslLum', 'u_hslActive', 'u_vibrance',
-  'u_gradeColor', 'u_gradeIntensity',
-  'u_grain', 'u_grainSeed', 'u_vignette', 'u_resolution', 'u_dehaze',
+  'u_gradeActive', 'u_gradeTint', 'u_gradeLum', 'u_gradeBlend', 'u_gradeBalance',
+  'u_grain', 'u_grainCells', 'u_vignette', 'u_resolution', 'u_dehaze',
 ]
 
 // One WebGL2 context + compiled programs + textures per <canvas> element, reused across
@@ -154,11 +154,6 @@ function getState(canvas) {
   return state
 }
 
-function hexToRgb01(hex) {
-  const n = parseInt(hex.slice(1), 16)
-  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]
-}
-
 function setMainUniforms(state, s, luts, source, w, h) {
   const { gl, imageTex, curveTex, cubeTex, uniforms } = state
 
@@ -263,13 +258,19 @@ function setMainUniforms(state, s, luts, source, w, h) {
   gl.uniform1f(uniforms.u_vibrance, (s.vibrance || 0) / 100)
 
 
-  const grade = s.colorGrade || { hex: '#000000', intensity: 0 }
-  const [gr, gg, gb] = hexToRgb01(grade.hex)
-  gl.uniform3f(uniforms.u_gradeColor, gr, gg, gb)
-  gl.uniform1f(uniforms.u_gradeIntensity, grade.intensity / 100)
+  // Color Grading (engine v4): 3 wheels + global in Oklab — see color.js.
+  const gradeOn = isGradeActive(s.colorGrade)
+  gl.uniform1i(uniforms.u_gradeActive, gradeOn ? 1 : 0)
+  if (gradeOn) {
+    const G = gradeUniforms(s.colorGrade)
+    gl.uniform2fv(uniforms.u_gradeTint, new Float32Array(G.tints))
+    gl.uniform1fv(uniforms.u_gradeLum, new Float32Array(G.lums))
+    gl.uniform1f(uniforms.u_gradeBlend, G.blending)
+    gl.uniform1f(uniforms.u_gradeBalance, G.balance)
+  }
 
-  gl.uniform1f(uniforms.u_grain, s.grain ? s.grain / 2.2 / 255 : 0)
-  gl.uniform1f(uniforms.u_grainSeed, Math.random() * 1000)
+  gl.uniform1f(uniforms.u_grain, s.grain > 0 ? grainAmplitude(s.grain) : 0)
+  gl.uniform2f(uniforms.u_grainCells, ...grainCells(w, h))
   gl.uniform1f(uniforms.u_vignette, s.vignette || 0)
   gl.uniform2f(uniforms.u_resolution, w, h)
   gl.uniform1f(uniforms.u_dehaze, (s.dehaze || 0) / 100)

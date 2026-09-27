@@ -4,7 +4,7 @@ import { isToneActive, isLocalToneActive, buildLocalLUT, buildGlobalLUT, sampleL
 import { getLocalBaseMap, sampleLocalBase } from './localBase'
 import { applyGeometry, isGeometryDefault } from './geometry'
 import { HSL_BANDS } from './hsl'
-import { wbMatrixFor, satVibFactor, scaleChroma, hueSat, withHue, hslBandWeights, neutralFade, lumaOf, HSL_HUE_DEG, HSL_LUM_EV } from './color'
+import { wbMatrixFor, isGradeActive, gradeUniforms, applyGrade, grainAmplitude, grainCells, grainAt, satVibFactor, scaleChroma, hueSat, withHue, hslBandWeights, neutralFade, lumaOf, HSL_HUE_DEG, HSL_LUM_EV } from './color'
 import { getProfileBias } from './colorProfiles'
 import { renderTonalWebGL } from './webgl/renderer'
 
@@ -106,8 +106,10 @@ function renderTonalCanvas2D(canvas, src, s, luts = {}) {
     hslH.push(b.h + (bias.h || 0)); hslS.push(b.s + (bias.s || 0)); hslL.push(b.l + (bias.l || 0))
   })
   const hslActive = [...hslH, ...hslS, ...hslL].some((v) => v)
-  const grainAmt = s.grain > 0 ? s.grain / 2.2 : 0
-  const needsPixelPass = linearOn || satOn || dehaze || curveLut || curvePointsLut || cubeLut || hslActive || grainAmt
+  const grainAmt = s.grain > 0 ? grainAmplitude(s.grain) : 0
+  const [cellsX, cellsY] = grainCells(w, h)
+  const grade = isGradeActive(s.colorGrade) ? gradeUniforms(s.colorGrade) : null
+  const needsPixelPass = linearOn || satOn || dehaze || curveLut || curvePointsLut || cubeLut || hslActive || grade || grainAmt
 
   if (needsPixelPass) {
     const id = ctx.getImageData(0, 0, w, h)
@@ -185,25 +187,21 @@ function renderTonalCanvas2D(canvas, src, s, luts = {}) {
         }
       }
 
-      r *= 255; g *= 255; b *= 255
+      if (grade) [r, g, b] = applyGrade(r, g, b, grade)
+
       if (grainAmt) {
-        const noise = (Math.random() - 0.5) * grainAmt
-        r += noise; g += noise; b += noise
+        const px = (i >> 2) % w, py = ((i >> 2) / w) | 0
+        const le = Math.min(1, Math.max(0, lumaOf(r, g, b)))
+        const n = grainAt((px + 0.5) / w, (py + 0.5) / h, cellsX, cellsY, grainAmt, le)
+        r += n; g += n; b += n
       }
+      r *= 255; g *= 255; b *= 255
 
       d[i] = r; d[i + 1] = g; d[i + 2] = b
     }
     ctx.putImageData(id, 0, 0)
   }
 
-  if (s.colorGrade && s.colorGrade.intensity > 0) {
-    ctx.globalCompositeOperation = 'color'
-    ctx.globalAlpha = s.colorGrade.intensity / 100
-    ctx.fillStyle = s.colorGrade.hex
-    ctx.fillRect(0, 0, w, h)
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.globalAlpha = 1
-  }
 
   // Vignette, Lightroom convention: negative darkens the corners, positive lightens them.
   if (s.vignette) {

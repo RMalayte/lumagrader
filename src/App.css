@@ -484,3 +484,23 @@ button.preset-card-delete{border:none;cursor:pointer;padding:0;top:-6px;right:-2
 .wb-label{font-size:12.5px;color:var(--text);}
 .wb-select{background:var(--bg2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:12.5px;max-width:60%;}
 .link-btn{background:none;border:none;color:var(--accent);padding:0;font-size:inherit;cursor:pointer;text-decoration:underline;}
+
+/* Color grading (v0.8.0) */
+.grade-views{margin-bottom:10px;}
+.grade-3way{display:flex;flex-direction:column;gap:6px;margin-bottom:8px;}
+.grade-row{display:flex;justify-content:space-between;gap:10px;}
+.grade-row.center{justify-content:center;}
+.grade-wheel{display:flex;flex-direction:column;align-items:center;gap:4px;flex:0 1 128px;min-width:0;}
+.grade-wheel .slider-row{width:100%;}
+.grade-wheel.detailed{flex:1;align-items:stretch;}
+.grade-wheel.detailed .color-wheel{align-self:center;margin-bottom:8px;}
+.grade-single{margin-bottom:6px;}
+.grade-wheel-title{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--sub);}
+.color-wheel{position:relative;flex:none;cursor:crosshair;touch-action:none;border-radius:50%;}
+.color-wheel canvas{display:block;border-radius:50%;}
+.wheel-cross{position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:rgba(0,0,0,.35);pointer-events:none;}
+.wheel-handle{position:absolute;width:16px;height:16px;margin:-8px 0 0 -8px;border-radius:50%;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.6);cursor:grab;}
+@media (pointer:coarse){
+  .color-wheel{touch-action:pan-y;}
+  .wheel-handle{width:22px;height:22px;margin:-11px 0 0 -11px;}
+}

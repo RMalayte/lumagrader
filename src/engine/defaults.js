@@ -2,6 +2,7 @@ import { HSL_BANDS } from './hsl'
 import { defaultCurvePoints } from './curvePoints'
 import { defaultGeometry } from './geometry'
 import { canonicalProfile } from './colorProfiles'
+import { defaultColorGrade, hueSat } from './color'
 
 // Exposure is in stops (EV) since engine v2 — these were converted from the old ±100 scale.
 // Vignette follows Lightroom since engine v3: negative = darker corners.
@@ -18,9 +19,9 @@ export const PRESETS = {
  * Engine version of a settings object. v1 (no marker): Exposure was a ±100 brightness
  * multiplier. v2: Exposure is in stops (EV, ±5) and the tone sliders behave like Lightroom.
  * v3: Lightroom-like color (white balance, vibrance/saturation, HSL); bipolar presence
- * sliders; Lightroom vignette sign.
+ * sliders; Lightroom vignette sign. v4: Lightroom-style Color Grading (3 wheels + Global).
  */
-export const ENGINE_VERSION = 3
+export const ENGINE_VERSION = 4
 
 /**
  * Upgrades settings saved by an older engine (projects, presets, preset files).
@@ -42,6 +43,22 @@ export function migrateSettings(s) {
     out.exposure = Math.round(Math.min(5, Math.max(-5, Math.log2(factor))) * 100) / 100
   }
   if (from < 3 && out.vignette) out.vignette = -Math.abs(Number(out.vignette) || 0)
+  if (from < 4) out.colorGrade = migrateColorGrade(s.colorGrade)
+  return out
+}
+
+/**
+ * v3 → v4: the single-colour grade { hex, intensity } becomes the Global wheel of the
+ * Lightroom-style Color Grading (hue of the colour, saturation ≈ intensity × its saturation).
+ */
+function migrateColorGrade(cg) {
+  if (!cg || typeof cg !== 'object') return defaultColorGrade()
+  if (cg.global || cg.midtones) return { ...defaultColorGrade(), ...cg }
+  const out = defaultColorGrade()
+  const n = parseInt(String(cg.hex || '#000000').slice(1), 16)
+  const [h, sat] = hueSat(((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255)
+  const intensity = Math.max(0, Math.min(100, Number(cg.intensity) || 0))
+  if (intensity > 0 && sat > 0) out.global = { h: Math.round(h), s: Math.round(intensity * sat), l: 0 }
   return out
 }
 
@@ -79,5 +96,5 @@ export const defaultSettings = () => ({
   lut: null,
   lutStrength: 100,
   hsl: defaultHsl(),
-  colorGrade: { hex: '#e0623e', intensity: 0 },
+  colorGrade: defaultColorGrade(),
 })

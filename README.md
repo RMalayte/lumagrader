@@ -42,6 +42,26 @@ Push to `main` — `.github/workflows/deploy.yml` lints, builds and publishes `d
 GitHub Pages. One-time setup: repo **Settings → Pages → Build and deployment → Source:
 GitHub Actions**. The site appears at `https://<username>.github.io/<repo>/`.
 
+## Grading calibration + new grain (v0.8.1)
+
+- Color Grading calibrated to a Lightroom comparison (Shadows 200°/40, Highlights 40°/40):
+  tint strength (Sat 100 = 0.06 Oklab chroma), Luminance strength, tonal ranges, and wheel hues
+  taken in a wide (ProPhoto-like) space so e.g. 200° is teal like Lightroom's, not sky blue.
+- Grain: film-like, fixed to the image (preview and export look the same), no flicker, weaker in
+  deep shadows/highlights, and much gentler (Amount 25 ≈ subtle, 100 ≈ heavy).
+- A notice appears when a RAW falls back to the camera's embedded preview.
+
+## Color Grading (v0.8.0)
+
+Lightroom-style **Shadows / Midtones / Highlights / Global** wheels (Hue 0–360 + Saturation 0–100
+on the wheel, Luminance −100…+100), **Blending** (0–100, default 50) and **Balance**
+(−100…+100). Views: 3-Way, or one wheel with Hue/Saturation/Luminance sliders. Maths in Oklab
+(`color.js` + shader): a wheel adds a chroma offset in its hue's direction weighted by how
+much a pixel belongs to its tonal range (so tints don't change brightness); Luminance shifts
+lightness. On touch screens a wheel only moves when you drag its dot (swipes scroll the panel);
+double-tap the dot to reset. LR XMP Color Grading and Split Toning import 1:1. Settings are
+`engine: 4`; the old single-colour grade migrates to the Global wheel.
+
 ## Kelvin on Lightroom's scale (v0.7.3)
 
 As Shot / Temp Kelvin is shown on Lightroom's scale: LibRaw only has each camera's daylight

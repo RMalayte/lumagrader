@@ -49,7 +49,7 @@ export default function MetadataPanel() {
       <div className="star-row-inline">
         <StarRating rating={active.rating || 0} label={active.name} onRate={(rating) => dispatch({ type: 'SET_RATING', id: active.id, rating })} />
         {active.isRawPreview && (
-          <span className="raw-badge-inline" title={active.rawSource === 'libraw' ? 'Developed from the RAW sensor data' : 'Using the camera\'s embedded JPEG preview'}>
+          <span className="raw-badge-inline" title={active.rawSource === 'libraw' ? 'Developed from the RAW sensor data' : `Using the camera's embedded JPEG preview${active.rawError ? ` — RAW decode failed: ${active.rawError}` : ''}`}>
             {active.rawSource === 'libraw' ? 'RAW' : 'RAW preview'}
           </span>
         )}

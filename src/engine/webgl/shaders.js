@@ -44,51 +44,18 @@ uniform bool u_hslActive;
 uniform float u_vibrance;
 
 
-uniform vec3 u_gradeColor;
-uniform float u_gradeIntensity;
+uniform bool u_gradeActive;   // Color Grading (color.js gradeUniforms)
+uniform vec2 u_gradeTint[4];  // shadows, midtones, highlights, global — Oklab (a, b) offsets
+uniform float u_gradeLum[4];
+uniform float u_gradeBlend;
+uniform float u_gradeBalance;
 
-uniform float u_grain;
-uniform float u_grainSeed;
+uniform float u_grain;      // peak amplitude (color.js grainAmplitude)
+uniform vec2 u_grainCells;  // grain cells across the image (color.js grainCells)
 
 uniform float u_vignette;
 uniform vec2 u_resolution;
 uniform float u_dehaze;
-
-vec3 rgb2hsl(vec3 c) {
-  float maxc = max(max(c.r, c.g), c.b);
-  float minc = min(min(c.r, c.g), c.b);
-  float l = (maxc + minc) * 0.5;
-  float h = 0.0;
-  float s = 0.0;
-  if (maxc != minc) {
-    float d = maxc - minc;
-    s = l > 0.5 ? d / (2.0 - maxc - minc) : d / (maxc + minc);
-    if (maxc == c.r) h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
-    else if (maxc == c.g) h = (c.b - c.r) / d + 2.0;
-    else h = (c.r - c.g) / d + 4.0;
-    h *= 60.0;
-  }
-  return vec3(h, s, l);
-}
-
-float hue2rgb(float p, float q, float t) {
-  if (t < 0.0) t += 1.0;
-  if (t > 1.0) t -= 1.0;
-  if (t < 1.0 / 6.0) return p + (q - p) * 6.0 * t;
-  if (t < 0.5) return q;
-  if (t < 2.0 / 3.0) return p + (q - p) * (2.0 / 3.0 - t) * 6.0;
-  return p;
-}
-
-vec3 hsl2rgb(vec3 hsl) {
-  float h = hsl.x / 360.0;
-  float s = hsl.y;
-  float l = hsl.z;
-  if (s == 0.0) return vec3(l);
-  float q = l < 0.5 ? l * (1.0 + s) : l + s - l * s;
-  float p = 2.0 * l - q;
-  return vec3(hue2rgb(p, q, h + 1.0 / 3.0), hue2rgb(p, q, h), hue2rgb(p, q, h - 1.0 / 3.0));
-}
 
 vec3 srgbToLinear(vec3 c) {
   return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(0.04045, c));
@@ -181,8 +148,61 @@ float satVibFactor(vec3 c, float sat, float vib) {
   return k;
 }
 
-float hashNoise(vec2 co, float seed) {
-  return fract(sin(dot(co, vec2(12.9898, 78.233)) + seed) * 43758.5453);
+vec3 linearToOklab(vec3 c) {
+  vec3 lms = vec3(
+    dot(c, vec3(0.4122214708, 0.5363325363, 0.0514459929)),
+    dot(c, vec3(0.2119034982, 0.6806995451, 0.1073969566)),
+    dot(c, vec3(0.0883024619, 0.2817188376, 0.6299787005)));
+  lms = pow(max(lms, 0.0), vec3(1.0 / 3.0));
+  return vec3(
+    dot(lms, vec3(0.2104542553, 0.7936177850, -0.0040720468)),
+    dot(lms, vec3(1.9779984951, -2.4285922050, 0.4505937099)),
+    dot(lms, vec3(0.0259040371, 0.7827717662, -0.8086757660)));
+}
+vec3 oklabToLinear(vec3 o) {
+  vec3 lms = vec3(
+    o.x + 0.3963377774 * o.y + 0.2158037573 * o.z,
+    o.x - 0.1055613458 * o.y - 0.0638541728 * o.z,
+    o.x - 0.0894841775 * o.y - 1.2914855480 * o.z);
+  lms = lms * lms * lms;
+  return vec3(
+    dot(lms, vec3(4.0767416621, -3.3077115913, 0.2309699292)),
+    dot(lms, vec3(-1.2684380046, 2.6097574011, -0.3413193965)),
+    dot(lms, vec3(-0.0041960863, -0.7034186147, 1.7076147010)));
+}
+
+vec3 applyGrade(vec3 c) {
+  vec3 o = linearToOklab(srgbToLinear(max(c, 0.0)));
+  float L = o.x;
+  float shift = -u_gradeBalance * 0.15;
+  float width = 0.06 + 0.22 * u_gradeBlend;
+  float ws = 1.0 - smoothstep(0.49 + shift - width, 0.49 + shift + width, L);
+  float wh = smoothstep(0.66 + shift - width, 0.66 + shift + width, L);
+  float wm = smoothstep(0.0, 1.0, 1.0 - abs(L - (0.575 + shift)) / (0.22 + 0.3 * u_gradeBlend));
+  float fade = smoothstep(0.05, 0.3, L) * (1.0 - 0.7 * smoothstep(0.93, 1.0, L));
+  float w[4] = float[4](ws, wm, wh, 1.0);
+  for (int i = 0; i < 4; i++) {
+    o.yz += u_gradeTint[i] * w[i] * fade;
+    o.x += u_gradeLum[i] * w[i];
+  }
+  o.x = max(o.x, 0.0);
+  return linearToSrgb(fitGamut(oklabToLinear(o)));
+}
+
+// Integer hash + value noise — bit-identical to color.js grainAt().
+float hash2(ivec2 p) {
+  uint h = uint(p.x) * 374761393u + uint(p.y) * 668265263u + 1013904223u;
+  h = (h ^ (h >> 13u)) * 1274126177u;
+  h = h ^ (h >> 16u);
+  return float(h & 0xffffffu) / 16777215.0;
+}
+float valueNoise(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = p - i;
+  f = f * f * (3.0 - 2.0 * f);
+  ivec2 q = ivec2(i);
+  float a = hash2(q), b = hash2(q + ivec2(1, 0)), c = hash2(q + ivec2(0, 1)), d = hash2(q + ivec2(1, 1));
+  return a + (b - a) * f.x + (c - a) * f.y + (a - b - c + d) * f.x * f.y;
 }
 
 void main() {
@@ -267,15 +287,14 @@ void main() {
     }
   }
 
-  if (u_gradeIntensity > 0.0) {
-    vec3 baseHsl = rgb2hsl(c);
-    vec3 gradeHsl = rgb2hsl(u_gradeColor);
-    vec3 graded = hsl2rgb(vec3(gradeHsl.x, gradeHsl.y, baseHsl.z));
-    c = mix(c, graded, u_gradeIntensity);
-  }
+  if (u_gradeActive) c = applyGrade(c);
 
   if (u_grain > 0.0) {
-    float n = (hashNoise(gl_FragCoord.xy, u_grainSeed) - 0.5) * u_grain;
+    // Image position (top-down rows, like the Canvas fallback) → same grain in preview and export.
+    vec2 p = vec2(v_uv.x, 1.0 - v_uv.y) * u_grainCells;
+    float n = 0.7 * (valueNoise(p) - 0.5) + 0.3 * (valueNoise(p * 2.3 + vec2(17.1, 5.3)) - 0.5);
+    float le = clamp(luma709(c), 0.0, 1.0);
+    n *= 2.0 * u_grain * (0.3 + 0.7 * 4.0 * le * (1.0 - le));
     c += n;
   }
 

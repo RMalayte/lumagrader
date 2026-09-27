@@ -12,6 +12,7 @@ import { defaultSettings } from './defaults'
 import { defaultGeometry } from './geometry'
 import { HSL_BANDS } from './hsl'
 import { COLOR_PROFILE_NAMES } from './colorProfiles'
+import { defaultColorGrade } from './color'
 
 const CRS = 'http://ns.adobe.com/camera-raw-settings/1.0/'
 const RDF = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#'
@@ -19,14 +20,6 @@ export const MAX_XMP_BYTES = 2 * 1024 * 1024
 
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 const LR_BAND = { red: 'Red', orange: 'Orange', yellow: 'Yellow', green: 'Green', aqua: 'Aqua', blue: 'Blue', purple: 'Purple', magenta: 'Magenta' }
-
-function hueToHex(hue) {
-  // Fully saturated, mid-lightness color for the given hue (0–360).
-  const h = (((hue % 360) + 360) % 360) / 60
-  const x = 1 - Math.abs((h % 2) - 1)
-  const [r, g, b] = h < 1 ? [1, x, 0] : h < 2 ? [x, 1, 0] : h < 3 ? [0, 1, x] : h < 4 ? [0, x, 1] : h < 5 ? [x, 0, 1] : [1, 0, x]
-  return '#' + [r, g, b].map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('')
-}
 
 /** The rdf:Description holding the preset's settings (not the one nested in crs:Look). */
 function findSettingsNode(doc) {
@@ -182,18 +175,27 @@ export function parseXmpPreset(text, fileName = 'Preset.xmp') {
     }
   }
 
-  // --- Color grading / split toning → single color grade --------------------------------
-  const grades = [
-    ['Midtones', r.num('ColorGradeMidtoneHue'), r.num('ColorGradeMidtoneSat')],
-    ['Shadows', r.num('ColorGradeShadowHue') ?? r.num('SplitToningShadowHue'), r.num('ColorGradeShadowSat') ?? r.num('SplitToningShadowSaturation')],
-    ['Highlights', r.num('ColorGradeHighlightHue') ?? r.num('SplitToningHighlightHue'), r.num('ColorGradeHighlightSat') ?? r.num('SplitToningHighlightSaturation')],
-  ].filter(([, h, sat]) => h !== null && sat !== null && sat > 0)
-  if (grades.length) {
-    const [which, hue, sat] = grades.reduce((best, g) => (g[2] > best[2] ? g : best))
-    s.colorGrade = { hex: hueToHex(hue), intensity: Math.round(clamp(sat * 0.5, 0, 100)) }
-    applied.push('Color grade')
-    if (grades.length > 1) partial.push(`Color grading (kept the strongest wheel: ${which})`)
+  // --- Color grading (3 wheels + Global, Blending, Balance) — 1:1 with Lightroom ---------
+  // Older presets use Split Toning (shadow/highlight hue + saturation, balance).
+  const wheel = (key, lrName, splitHue, splitSat) => {
+    const h = r.num(`ColorGrade${lrName}Hue`) ?? (splitHue ? r.num(splitHue) : null)
+    const sat = r.num(`ColorGrade${lrName}Sat`) ?? (splitSat ? r.num(splitSat) : null)
+    const lum = r.num(`ColorGrade${lrName}Lum`)
+    if (h === null && sat === null && lum === null) return false
+    s.colorGrade[key] = { h: Math.round(clamp(h ?? 0, 0, 360)), s: Math.round(clamp(sat ?? 0, 0, 100)), l: Math.round(clamp(lum ?? 0, -100, 100)) }
+    return !!(sat || lum)
   }
+  s.colorGrade = defaultColorGrade()
+  let gradeUsed = false
+  gradeUsed = wheel('shadows', 'Shadow', 'SplitToningShadowHue', 'SplitToningShadowSaturation') || gradeUsed
+  gradeUsed = wheel('midtones', 'Midtone') || gradeUsed
+  gradeUsed = wheel('highlights', 'Highlight', 'SplitToningHighlightHue', 'SplitToningHighlightSaturation') || gradeUsed
+  gradeUsed = wheel('global', 'Global') || gradeUsed
+  const blend = r.num('ColorGradeBlending')
+  if (blend !== null) s.colorGrade.blending = Math.round(clamp(blend, 0, 100))
+  const bal = r.num('SplitToningBalance') ?? r.num('ColorGradeBalance')
+  if (bal !== null) s.colorGrade.balance = Math.round(clamp(bal, -100, 100))
+  if (gradeUsed) applied.push('Color grading')
 
   // --- Profile -------------------------------------------------------------------------
   const lookEl = r.element('Look')
