@@ -3,6 +3,9 @@
 Browser-based, Lightroom-style photo editor. Adjustments, curves, HSL, LUT import,
 color grading and batch export — all client-side, no backend.
 
+**Privacy:** photos never leave your device. Everything (RAW decoding, editing, export) runs in
+your browser; there is no server, account, analytics or upload.
+
 ## Stack
 
 | Layer | Choice | Why |
@@ -76,3 +79,28 @@ RAW files (ARW, CR2/CR3, NEF, DNG, RAF, ORF, RW2, …) are decoded from the **se
 - Full-size RAW export takes ~10–15 s for a 24 MP file on a laptop and needs a few hundred MB of
   memory; if it fails (low-memory phones) the half-size develop is exported with a notice.
 - Reopening a saved project re-develops its RAW photos (≈1–4 s each).
+
+## Contributing
+
+Issues and pull requests are welcome.
+
+1. Fork the repo and create a branch (`git checkout -b fix/short-description`).
+2. `npm install`, then `npm run dev` (add `-- --host` to test on a phone on the same Wi-Fi).
+3. Before pushing: `npm run lint` and `npm run build` must pass — CI runs both on every push/PR.
+4. Keep changes focused; use commit messages like `feat: …`, `fix: …`, `docs: …`.
+5. Never commit secrets (`.env` files are git-ignored) or personal photos.
+
+## License
+
+[MIT](LICENSE) © 2026 Rax.
+
+Third-party components keep their own licenses:
+
+| Component | License |
+|---|---|
+| LibRaw (via `libraw-wasm`, loaded as a separate, unmodified `.wasm`) | LGPL-2.1 or CDDL-1.0 (wrapper: ISC) |
+| React, exifr, extract-raw-preview, piexifjs | MIT |
+| JSZip | MIT (dual MIT / GPL-3.0) |
+
+The MIT license covers the code. The "LumaGrader by Rax" name and logo identify the original project —
+if you publish a fork, please give it a different name and logo.
