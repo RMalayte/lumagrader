@@ -7,7 +7,7 @@ import { renderToCanvas } from '../engine/pipeline'
 import { getFullImage } from '../engine/imageStore'
 import { gpuMaxDimension } from '../engine/webgl/renderer'
 import { resizeCanvas, applyWatermark, formatMime, formatExt, injectExif } from '../engine/exportUtils'
-import { kofiUrl, takeSupportNudge } from '../config'
+import { takeSupportNudge, requestSupportPrompt } from '../config'
 
 const RESOLUTIONS = [
   { label: 'Original', value: null },
@@ -117,16 +117,11 @@ export default function ExportModal({ mode, onClose }) {
         download(await zip.generateAsync({ type: 'blob' }), 'lumagrader-export.zip')
       }
       const done = targets.length === 1 ? `Exported "${targets[0].name.replace(/\.[^.]+$/, '')}" — check your downloads` : `Exported ${targets.length} photos as a .zip — check your downloads`
-      // Once a week, the success message also invites a Ko-fi coffee (never blocks, one tap).
-      if (takeSupportNudge()) {
-        toast(`${done}. Enjoying LumaGrader? A coffee helps keep it free.`, {
-          duration: 10000,
-          action: { label: '☕ Support', onClick: () => window.open(kofiUrl(), '_blank', 'noopener,noreferrer') },
-        })
-      } else {
-        toast(done)
-      }
+      toast(done)
       onClose()
+      // Once a week: a centred "Support LumaGrader" card, after the download has started (and
+      // after any "Save as…" dialog is closed) — never before, so it never stands in the way.
+      if (takeSupportNudge()) requestSupportPrompt({ count: targets.length })
     } catch (err) {
       console.error('Export failed', err)
       // Stay open with the reason, so a different size or format can be tried right away.

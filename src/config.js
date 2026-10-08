@@ -21,3 +21,11 @@ export function takeSupportNudge(now = Date.now()) {
     return false // private mode / storage blocked: no nudge rather than one every time
   }
 }
+
+// The support card (components/SupportPrompt.jsx) listens for this event.
+export const SUPPORT_EVENT = 'lumagrader:support-prompt'
+
+/** Asks the app to show the support card once the download has started. */
+export function requestSupportPrompt(detail = {}) {
+  window.dispatchEvent(new window.CustomEvent(SUPPORT_EVENT, { detail }))
+}

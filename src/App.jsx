@@ -19,6 +19,7 @@ const ShortcutsHelp = lazy(() => import('./components/ShortcutsHelp.jsx'))
 const AboutDialog = lazy(() => import('./components/AboutDialog.jsx'))
 import { kofiUrl } from './config.js'
 import WhatsNew from './components/WhatsNew.jsx'
+import SupportPrompt from './components/SupportPrompt.jsx'
 
 const VIEW_MODES = [
   { mode: 'filmstrip', label: 'Edit', icon: 'filmstrip', title: 'Edit — filmstrip, photo and panels' },
@@ -307,6 +308,7 @@ export default function App() {
         </Suspense>
       )}
       <WhatsNew />
+      <SupportPrompt />
     </div>
   )
 }
