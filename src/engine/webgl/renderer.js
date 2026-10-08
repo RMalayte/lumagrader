@@ -1,7 +1,7 @@
 import { createProgram, ensureRenderTarget } from './glCore'
 import { VERT_SRC, FRAG_SRC, BLUR_FRAG_SRC, COMBINE_FRAG_SRC, MASK_FRAG_SRC, DETAIL_FRAG_SRC } from './shaders'
 import { buildRgbCurveLUTs } from '../curvePoints'
-import { getBrushCanvas } from '../brushMaskStore'
+import { brushMaskSource } from '../brushMaskStore'
 import { rangeUniforms } from '../masks'
 import { getProfileBias } from '../colorProfiles'
 import { wbMatrixFor, isGradeActive, gradeUniforms, grainAmplitude, grainCells, vignetteParams } from '../color'
@@ -157,6 +157,7 @@ function getState(canvas) {
     u_sharpen: gl.getUniformLocation(maskProgram, 'u_sharpen'),
     u_denoise: gl.getUniformLocation(maskProgram, 'u_denoise'),
     u_feather: gl.getUniformLocation(maskProgram, 'u_feather'),
+    u_amount: gl.getUniformLocation(maskProgram, 'u_amount'),
     u_invert: gl.getUniformLocation(maskProgram, 'u_invert'),
     u_exposure: gl.getUniformLocation(maskProgram, 'u_exposure'),
     u_contrast: gl.getUniformLocation(maskProgram, 'u_contrast'),
@@ -319,8 +320,11 @@ export function renderTonalWebGL(canvas, source, s, luts) {
   const h = source.naturalHeight ?? source.height
   const max = gpuMaxDimension()
   if (w > max || h > max) throw new Error(`Image ${w}×${h} exceeds this GPU's ${max}px limit`)
-  canvas.width = w
-  canvas.height = h
+  // Only resize when the size really changes: assigning canvas.width/height — even to the
+  // same value — reallocates and clears the drawing buffer, which flickers on phones when it
+  // happens on every slider frame.
+  if (canvas.width !== w) canvas.width = w
+  if (canvas.height !== h) canvas.height = h
 
   const state = getState(canvas)
   const { gl } = state
@@ -426,7 +430,9 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     if (sharpenAmt !== 0 || denoiseAmt > 0) {
       const exclude = dstTarget ? [srcTarget, dstTarget] : [srcTarget]
       const [scratch1, scratch2] = [A, B, C, D].filter((t) => !exclude.includes(t))
-      const radius = 1.0 + Math.max(Math.abs(sharpenAmt) * (sharpenAmt < 0 ? 4.0 : 2.0), denoiseAmt * 4.0)
+      // In preview pixels (1600 px long side), scaled down on the smaller drag proxy so a
+      // mask's Sharpness / Noise Reduction look the same while any slider is dragged.
+      const radius = (1.0 + Math.max(Math.abs(sharpenAmt) * (sharpenAmt < 0 ? 4.0 : 2.0), denoiseAmt * 4.0)) * Math.min(1, Math.max(w, h) / 1600)
       blurPass(srcTex, scratch1, [1, 0], radius)
       blurPass(scratch1.texture, scratch2, [0, 1], radius)
       blurredTex = scratch2.texture
@@ -450,7 +456,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
     } else if (mask.type === 'brush') {
       gl.activeTexture(gl.TEXTURE1)
       gl.bindTexture(gl.TEXTURE_2D, state.brushTex)
-      const canvas = getBrushCanvas(mask.id)
+      const canvas = brushMaskSource(mask) // painted pixels, softened by the mask's Feather
       if (canvas) {
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.ALPHA, gl.ALPHA, gl.UNSIGNED_BYTE, canvas)
@@ -467,6 +473,7 @@ export function renderTonalWebGL(canvas, source, s, luts) {
 
     gl.uniform1i(state.maskUniforms.u_invert, mask.invert ? 1 : 0)
     gl.uniform1f(state.maskUniforms.u_feather, (mask.feather ?? 100) / 100)
+    gl.uniform1f(state.maskUniforms.u_amount, Math.min(100, Math.max(0, mask.amount ?? 100)) / 100)
     gl.uniform1f(state.maskUniforms.u_exposure, (adj.exposure || 0) / 100)
     gl.uniform1f(state.maskUniforms.u_contrast, (adj.contrast || 0) / 100)
     gl.uniform1f(state.maskUniforms.u_saturation, (adj.saturation || 0) / 100)
@@ -537,7 +544,10 @@ export function renderTonalWebGL(canvas, source, s, luts) {
       // Softening shows the sparse 9-tap kernel as ghost copies at large radii, so large
       // radii / negative amounts run several smaller blurs (Gaussians compose: σ = √n · σᵢ).
       const iterations = pass.amount < 0 || pass.radius > 12 ? 3 : 1
-      const r = pass.radius / Math.sqrt(iterations)
+      // Radii are in preview pixels (1600 px long side). Images smaller than that — the
+      // ≤720 px proxy used while a slider is dragged — scale the radius down, so Dehaze /
+      // Clarity / Texture look the same while dragging as after release.
+      const r = (pass.radius * Math.min(1, Math.max(w, h) / 1600)) / Math.sqrt(iterations)
       blurPass(sourceTarget.texture, E, [1, 0], r)
       blurPass(E.texture, F, [0, 1], r)
       for (let k = 1; k < iterations; k++) {

@@ -13,7 +13,7 @@ photos and edits stay on your device.
 1. [Getting started](#1-getting-started)
 2. [The screen](#2-the-screen)
 3. [Editing tools](#3-editing-tools)
-4. [Presets, profiles and LUTs](#4-presets-profiles-and-luts)
+4. [Presets and profiles](#4-presets-and-profiles)
 5. [Healing, masks and optics](#5-healing-masks-and-optics)
 6. [Albums, ratings and snapshots](#6-albums-ratings-and-snapshots)
 7. [Saving your work](#7-saving-your-work)
@@ -86,9 +86,11 @@ like a normal app and works offline after the first visit.
 - **Optics:** see [section 5](#optics).
 
 ### Crop
-Press **Crop** (`R`) to crop, straighten or rotate by 90°. Choose an aspect ratio or crop freely.
+Press **Crop** (`R`) to crop, straighten or rotate by 90°. Choose an aspect ratio or crop freely;
+drag a corner or an edge to resize. When you straighten, the crop shrinks just enough that no
+empty corners show. Straighten moves in 0.1° steps — double-click it to go back to 0°.
 
-## 4. Presets, profiles and LUTs
+## 4. Presets and profiles
 
 - **Profile:** the photo's starting look: Luma Color, Standard, Vivid, Landscape, Portrait,
   Neutral or Monochrome.
@@ -104,8 +106,7 @@ Press **Crop** (`R`) to crop, straighten or rotate by 90°. Choose an aspect rat
     are translated to the closest LumaGrader settings (approximate); masks, graduated filters
     and spot removal inside a preset are skipped, and a DNG's crop is never applied.
   - **Export presets:** saves all your presets into one `.json` file, a good backup.
-- **Your LUTs:** import `.cube` LUT files and apply them with an adjustable strength.
-- To apply to several photos, select them first (Shift/Ctrl+click), or use **Copy to all**.
+- To apply to several photos, select them first (Shift/Ctrl+click), or use **⋯ → Copy edits to all photos**.
 
 Your presets are saved in the browser and also travel inside project files you save to your
 device (see [section 7](#7-saving-your-work)).

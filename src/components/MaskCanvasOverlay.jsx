@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useProject } from '../store/ProjectContext'
 import { createLinearMask, createRadialMask, colorRangeSample } from '../engine/masks'
-import { ensureBrushCanvas, touchBrushCanvas } from '../engine/brushMaskStore'
+import { ensureBrushCanvas, touchBrushCanvas, getBrushCanvas } from '../engine/brushMaskStore'
 import { previewSizeFor, peekPreview } from '../engine/imageStore'
 import { renderToCanvas } from '../engine/pipeline'
 import { effectiveSettings } from '../engine/panels'
@@ -11,6 +11,8 @@ export default function MaskCanvasOverlay({ active }) {
   const svgRef = useRef(null)
   const visualWrapRef = useRef(null)
   const [draft, setDraft] = useState(null) // { type, x1, y1, x2, y2 } while actively drawing a linear/radial mask
+  const [brushCursor, setBrushCursor] = useState(null) // { x, y } (normalized) — where the brush outline is drawn
+  const [stroking, setStroking] = useState(false) // a brush stroke is in progress
 
   const masks = active.settings.masks || []
   const selectedMaskId = state.selectedMaskId
@@ -22,12 +24,13 @@ export default function MaskCanvasOverlay({ active }) {
   const minDim = Math.min(imgW, imgH)
   const handleR = Math.max(imgW, imgH) * 0.014
 
-  // Mounts a clear amber-tinted visualization of the REAL brush canvas (from the runtime
-  // store) so painting has obvious feedback. Rendering the raw white-alpha canvas with a
-  // blend mode was washing out the whole photo — this instead clips a solid amber fill to
-  // exactly the painted shape, independent of the photo's own brightness underneath.
+  // Red overlay like Lightroom's "auto overlay": shown only WHILE a stroke is being painted, so
+  // you see where the brush goes, then hidden on release so the adjustment itself is visible.
+  // "Show overlay" keeps it on permanently (the photo renders it then — this one stays off to
+  // avoid doubling). A solid red fill is clipped to exactly the painted shape.
+  const showTint = isPaintingBrush && stroking && !state.maskOverlay
   useEffect(() => {
-    if (!isPaintingBrush || !visualWrapRef.current) return
+    if (!showTint || !visualWrapRef.current) return
     const maskCanvas = ensureBrushCanvas(selectedMask.id, imgW, imgH)
     const tinted = document.createElement('canvas')
     tinted.width = imgW
@@ -36,14 +39,11 @@ export default function MaskCanvasOverlay({ active }) {
     tctx.clearRect(0, 0, imgW, imgH)
     tctx.drawImage(maskCanvas, 0, 0)
     tctx.globalCompositeOperation = 'source-in'
-    tctx.fillStyle = '#f5a623'
+    tctx.fillStyle = 'rgb(255, 40, 40)'
     tctx.fillRect(0, 0, imgW, imgH)
-    tinted.style.width = '100%'
-    tinted.style.height = '100%'
-    tinted.style.display = 'block'
-    tinted.style.opacity = '0.32'
+    tinted.className = 'brush-tint'
     visualWrapRef.current.replaceChildren(tinted)
-  }, [isPaintingBrush, selectedMask?.id, selectedMask?.brushVersion, imgW, imgH])
+  }, [showTint, selectedMask?.id, selectedMask?.brushVersion, imgW, imgH])
 
   if (state.openAccordionId !== 'masks') return null
 
@@ -207,47 +207,83 @@ export default function MaskCanvasOverlay({ active }) {
     const ctx = canvas.getContext('2d')
     const paintRef = svgRef.current
     let last = getRelPos(e, paintRef)
+    setBrushCursor(last)
+    setStroking(true)
     paintStroke(ctx, last, last)
     bumpBrushVersion()
     function move(ev) {
       const cur = getRelPos(ev, paintRef)
+      setBrushCursor(cur)
       paintStroke(ctx, last, cur)
       last = cur
       bumpBrushVersion()
     }
-    function up() {
+    function up(ev) {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', up)
+      setStroking(false)
+      if (ev.pointerType !== 'mouse') setBrushCursor(null) // touch: no hover, hide the outline
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', up)
   }
 
   function bumpBrushVersion() {
     touchBrushCanvas(selectedMaskId)
+    // The canvas's own edit counter, not `masks` from this render: a stroke's pointer handlers
+    // keep the masks they started with, so "+1" on those stopped changing after the first dab
+    // and the overlay never showed the rest of the stroke.
+    const version = (selectedMask.brushVersion || 0) + (getBrushCanvas(selectedMaskId)?._version || 1)
     liveUpdate(active.id, {
-      masks: masks.map((m) => (m.id === selectedMaskId ? { ...m, brushVersion: (m.brushVersion || 0) + 1 } : m)),
+      masks: masks.map((m) => (m.id === selectedMaskId ? { ...m, brushVersion: version } : m)),
     })
   }
 
+  // Brush outline like Lightroom: outer circle = brush size, inner circle = where the soft
+  // edge starts (Hardness); a minus sign while erasing.
+  const brushR = (state.brushSettings.size / 100) * minDim * 0.5
+  const brushInnerR = brushR * (state.brushSettings.hardness / 100)
+
   return (
     <div className="mask-overlay-stack">
-      {isPaintingBrush && <div className="brush-visual-wrap" ref={visualWrapRef} />}
+      {showTint && <div className="brush-visual-wrap" ref={visualWrapRef} />}
       <svg
         ref={svgRef}
         className="mask-canvas-overlay"
         viewBox={`0 0 ${imgW} ${imgH}`}
         preserveAspectRatio="none"
-        style={{ pointerEvents: drawMode || isPaintingBrush || state.maskPickColor ? 'auto' : 'none', cursor: drawMode || isPaintingBrush || state.maskPickColor ? 'crosshair' : 'default' }}
+        style={{ pointerEvents: drawMode || isPaintingBrush || state.maskPickColor ? 'auto' : 'none', cursor: isPaintingBrush && !state.maskPickColor ? 'none' : drawMode || state.maskPickColor ? 'crosshair' : 'default' }}
         onPointerDown={state.maskPickColor ? pickRangeColor : isPaintingBrush ? startPaint : startDraw}
+        onPointerMove={isPaintingBrush ? (e) => e.pointerType === 'mouse' && setBrushCursor(getRelPos(e)) : undefined}
+        onPointerLeave={isPaintingBrush ? (e) => e.pointerType === 'mouse' && setBrushCursor(null) : undefined}
       >
         {masks.map((m) => {
           const isSel = m.id === selectedMaskId
-          const stroke = isSel ? 'var(--accent2)' : 'rgba(255,255,255,.55)'
+          const stroke = isSel ? 'var(--accent)' : 'rgba(255,255,255,.55)'
           if (m.type !== 'linear' && m.type !== 'radial') return null
           if (m.type === 'linear') {
+            // Feather guides like Lightroom: lines across the photo, perpendicular to the drag,
+            // where the transition starts, its middle, and where it ends (selected mask only).
+            const L = m.linear
+            const dx = (L.x2 - L.x1) * imgW, dy = (L.y2 - L.y1) * imgH
+            const len = Math.hypot(dx, dy) || 1
+            const nx = -dy / len, ny = dx / len // unit normal, in pixels
+            const reach = Math.hypot(imgW, imgH)
+            const hw = Math.max(0, (m.feather ?? 100) / 100) * 0.5
+            const guide = (t, key, dashed) => {
+              const cx = (L.x1 + (L.x2 - L.x1) * t) * imgW, cy = (L.y1 + (L.y2 - L.y1) * t) * imgH
+              return (
+                <line key={key} x1={cx - nx * reach} y1={cy - ny * reach} x2={cx + nx * reach} y2={cy + ny * reach}
+                  className={'mask-guide' + (dashed ? ' dashed' : '')} vectorEffect="non-scaling-stroke" pointerEvents="none" />
+              )
+            }
             return (
               <g key={m.id}>
+                {isSel && hw > 0.001 && guide(0.5 - hw, 'a', true)}
+                {isSel && guide(0.5, 'c', false)}
+                {isSel && hw > 0.001 && guide(0.5 + hw, 'b', true)}
                 <line
                   x1={m.linear.x1 * imgW} y1={m.linear.y1 * imgH} x2={m.linear.x2 * imgW} y2={m.linear.y2 * imgH}
                   stroke={stroke} strokeWidth={imgW * 0.003}
@@ -275,9 +311,13 @@ export default function MaskCanvasOverlay({ active }) {
                 style={{ pointerEvents: 'auto', cursor: 'pointer' }}
                 onPointerDown={(e) => { e.stopPropagation(); dispatch({ type: 'SET_SELECTED_MASK', id: m.id }) }}
               />
+              {isSel && (m.feather ?? 100) > 0 && (m.feather ?? 100) < 100 && (
+                <ellipse cx={cxPx} cy={cyPx} rx={rx * (1 - (m.feather ?? 100) / 100)} ry={ry * (1 - (m.feather ?? 100) / 100)}
+                  className="mask-guide dashed" vectorEffect="non-scaling-stroke" pointerEvents="none" />
+              )}
               {isSel && (
                 <>
-                  <circle cx={cxPx} cy={cyPx} r={handleR} fill="var(--accent2)" style={{ pointerEvents: 'auto', cursor: 'move' }} onPointerDown={startCenterDrag} />
+                  <circle cx={cxPx} cy={cyPx} r={handleR} fill="var(--accent)" style={{ pointerEvents: 'auto', cursor: 'move' }} onPointerDown={startCenterDrag} />
                   <circle cx={cxPx + rx} cy={cyPx} r={handleR} fill="#fff" stroke={stroke} strokeWidth={handleR * 0.3} style={{ pointerEvents: 'auto', cursor: 'ew-resize' }} onPointerDown={startRadiusDrag('x')} />
                   <circle cx={cxPx} cy={cyPx + ry} r={handleR} fill="#fff" stroke={stroke} strokeWidth={handleR * 0.3} style={{ pointerEvents: 'auto', cursor: 'ns-resize' }} onPointerDown={startRadiusDrag('y')} />
                 </>
@@ -285,14 +325,33 @@ export default function MaskCanvasOverlay({ active }) {
             </g>
           )
         })}
+        {isPaintingBrush && brushCursor && !state.maskPickColor && (
+          <g className="brush-cursor" pointerEvents="none">
+            <circle cx={brushCursor.x * imgW} cy={brushCursor.y * imgH} r={brushR} className="brush-cursor-shadow" vectorEffect="non-scaling-stroke" />
+            <circle cx={brushCursor.x * imgW} cy={brushCursor.y * imgH} r={brushR} className="brush-cursor-ring" vectorEffect="non-scaling-stroke" />
+            {brushInnerR > brushR * 0.04 && brushInnerR < brushR * 0.98 && (
+              <circle cx={brushCursor.x * imgW} cy={brushCursor.y * imgH} r={brushInnerR} className="brush-cursor-ring inner" vectorEffect="non-scaling-stroke" />
+            )}
+            <line
+              x1={brushCursor.x * imgW - brushR * 0.18} y1={brushCursor.y * imgH} x2={brushCursor.x * imgW + brushR * 0.18} y2={brushCursor.y * imgH}
+              className="brush-cursor-ring" vectorEffect="non-scaling-stroke"
+            />
+            {!state.brushSettings.erase && (
+              <line
+                x1={brushCursor.x * imgW} y1={brushCursor.y * imgH - brushR * 0.18} x2={brushCursor.x * imgW} y2={brushCursor.y * imgH + brushR * 0.18}
+                className="brush-cursor-ring" vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </g>
+        )}
         {draft && draft.type === 'linear' && (
-          <line x1={draft.x1 * imgW} y1={draft.y1 * imgH} x2={draft.x2 * imgW} y2={draft.y2 * imgH} stroke="var(--accent2)" strokeWidth={imgW * 0.004} strokeDasharray={`${imgW * 0.012} ${imgW * 0.008}`} />
+          <line x1={draft.x1 * imgW} y1={draft.y1 * imgH} x2={draft.x2 * imgW} y2={draft.y2 * imgH} stroke="var(--accent)" strokeWidth={imgW * 0.004} strokeDasharray={`${imgW * 0.012} ${imgW * 0.008}`} />
         )}
         {draft && draft.type === 'radial' && (
           <circle
             cx={draft.x1 * imgW} cy={draft.y1 * imgH}
             r={Math.hypot(draft.x2 - draft.x1, draft.y2 - draft.y1) * minDim}
-            fill="rgba(245,166,35,0.12)" stroke="var(--accent2)" strokeWidth={imgW * 0.004} strokeDasharray={`${imgW * 0.012} ${imgW * 0.008}`}
+            fill="rgba(101,191,255,0.12)" stroke="var(--accent)" strokeWidth={imgW * 0.004} strokeDasharray={`${imgW * 0.012} ${imgW * 0.008}`}
           />
         )}
       </svg>

@@ -27,8 +27,16 @@ export function createProgram(gl, vsSource, fsSource) {
 
 // A texture + framebuffer pair we can render into, resized on demand. `target.texture` and
 // `target.framebuffer` are created lazily and reused (recreated only when dimensions change).
+const SCRATCH_TEXTURE_UNIT = 7 // not used by any shader (they use units 0–5)
+
 export function ensureRenderTarget(gl, target, w, h) {
   if (target.width === w && target.height === h && target.texture) return target
+  // Work on a spare texture unit: binding here on whatever unit is active would silently
+  // replace a texture the next draw still samples (the Highlights/Shadows map on unit 5),
+  // so the first frame after a size change — the full-quality render on slider release —
+  // came out wrong.
+  const prevUnit = gl.getParameter(gl.ACTIVE_TEXTURE)
+  gl.activeTexture(gl.TEXTURE0 + SCRATCH_TEXTURE_UNIT)
   const texture = target.texture || gl.createTexture()
   gl.bindTexture(gl.TEXTURE_2D, texture)
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
@@ -42,6 +50,8 @@ export function ensureRenderTarget(gl, target, w, h) {
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
   const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER)
   gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+  gl.bindTexture(gl.TEXTURE_2D, null)
+  gl.activeTexture(prevUnit)
   // Incomplete (usually out of graphics memory) would otherwise render nothing, silently.
   if (status !== gl.FRAMEBUFFER_COMPLETE) throw new Error(`Render target ${w}×${h} unavailable (framebuffer status 0x${status.toString(16)})`)
 

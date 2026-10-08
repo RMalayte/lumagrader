@@ -351,6 +351,7 @@ uniform bool u_useDetailBlur;
 uniform float u_sharpen;
 uniform float u_denoise;
 uniform float u_feather; // 0..1 — 0 = hard edge, 1 = the original full-length soft gradient
+uniform float u_amount;  // 0..1 — overall strength of the mask (Amount)
 uniform bool u_invert;
 uniform float u_exposure;
 uniform float u_contrast;
@@ -358,6 +359,10 @@ uniform float u_saturation;
 uniform float u_temp;
 uniform vec2 u_resolution;
 
+// Feathered edges use smoothstep (an S-curve), not a straight ramp: a straight ramp has
+// visible "corners" where the transition starts and ends (a cone tip in the middle of a fully
+// feathered radial mask, hard-looking edges on gradients). At Feather 0 the edge is still
+// ~1.5 px soft (fwidth) so it isn't jagged.
 float linearWeight(vec2 uv) {
   vec2 p1 = u_linear.xy;
   vec2 p2 = u_linear.zw;
@@ -365,8 +370,8 @@ float linearWeight(vec2 uv) {
   float len = length(dir);
   if (len < 0.0001) return 0.0;
   float t = dot(uv - p1, dir) / (len * len);
-  float halfWidth = max(0.001, u_feather * 0.5);
-  return clamp((t - (0.5 - halfWidth)) / (halfWidth * 2.0), 0.0, 1.0);
+  float halfWidth = max(u_feather * 0.5, 0.75 * fwidth(t));
+  return smoothstep(0.5 - halfWidth, 0.5 + halfWidth, t);
 }
 
 float radialWeight(vec2 uv) {
@@ -375,9 +380,9 @@ float radialWeight(vec2 uv) {
   float rx = max(u_radial.z * minDim, 0.001);
   float ry = max(u_radial.w * minDim, 0.001);
   float dist = length(vec2(pixelPos.x / rx, pixelPos.y / ry)); // 1.0 = exactly on the ellipse
-  float innerDist = 1.0 - u_feather;
-  float band = max(1.0 - innerDist, 0.001);
-  return 1.0 - clamp((dist - innerDist) / band, 0.0, 1.0);
+  float innerDist = 1.0 - u_feather; // full effect inside this, fading out to the ellipse
+  float aa = 1.5 * fwidth(dist);
+  return 1.0 - smoothstep(min(innerDist, 1.0 - aa), 1.0, dist);
 }
 
 float srgbToLin(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
@@ -427,6 +432,7 @@ void main() {
   float range = rangeWeight(base);
   if (u_maskType == 3) w = u_invert ? 1.0 - range : range; // range-only mask: invert the range
   else w = (u_invert ? 1.0 - w : w) * range; // shape masks: the range refines the (inverted) shape
+  w *= u_amount;
 
   vec3 c = base * (1.0 + u_exposure);
   c = (c - 0.5) * (1.0 + u_contrast) + 0.5;

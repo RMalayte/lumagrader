@@ -27,7 +27,7 @@ export default function AboutDialog({ onClose }) {
         </div>
         <div className="modal-body">
           <div className="about-hero">
-            <img src={logo} alt="LumaGrader by Rax" className="about-logo" width="508" height="120" />
+            <img src={logo} alt="LumaGrader" className="about-logo" width="666" height="120" />
             <div className="about-version">Version {APP_VERSION} · built {BUILD_DATE}</div>
             <p>Browser-based RAW &amp; photo editor. Your photos never leave your device —
               everything runs in this browser; no account, no upload, no tracking.</p>

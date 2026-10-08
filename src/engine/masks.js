@@ -14,7 +14,7 @@ export function createLinearMask(x1, y1, x2, y2) {
 
 // Ellipse: rx/ry are relative to the shorter image edge. (`r` alone = older circular masks.)
 export function createRadialMask(cx, cy, r) {
-  return { id: newMaskId(), type: 'radial', enabled: true, invert: false, feather: 100, radial: { cx, cy, rx: r, ry: r }, adjustments: noAdjustments() }
+  return { id: newMaskId(), type: 'radial', enabled: true, invert: false, feather: 50, radial: { cx, cy, rx: r, ry: r }, adjustments: noAdjustments() }
 }
 
 // Brush masks paint an arbitrary shape. The painted pixels live in brushMaskStore (keyed by
@@ -35,6 +35,11 @@ export function createLuminanceMask() {
 
 export function createColorMask() {
   return { id: newMaskId(), type: 'color', enabled: true, invert: false, range: defaultColorRange(), adjustments: noAdjustments() }
+}
+
+/** Copy of a mask with a new id (brush pixels are copied by the caller — see duplicateBrush). */
+export function duplicateMask(mask) {
+  return { ...JSON.parse(JSON.stringify(mask)), id: newMaskId() }
 }
 
 export const MASK_LABELS = { linear: 'Linear', radial: 'Radial', brush: 'Brush', luminance: 'Luminance', color: 'Color' }

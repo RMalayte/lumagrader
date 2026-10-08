@@ -1,10 +1,11 @@
 import { useProject } from '../store/ProjectContext'
-import { createBrushMask, createLuminanceMask, createColorMask, defaultLuminanceRange, defaultColorRange, MASK_LABELS } from '../engine/masks'
-import { clearBrushCanvas } from '../engine/brushMaskStore'
+import { createBrushMask, createLuminanceMask, createColorMask, defaultLuminanceRange, defaultColorRange, duplicateMask, MASK_LABELS } from '../engine/masks'
+import { clearBrushCanvas, copyBrushCanvas } from '../engine/brushMaskStore'
 import { oklabToLinear } from '../engine/color'
 import { srgbEncode } from '../engine/tone'
 import Accordion from './Accordion.jsx'
 import Slider from './Slider.jsx'
+import { useFeedback } from '../store/FeedbackContext'
 
 const ADJUSTMENTS = [
   { key: 'exposure', label: 'Exposure', min: -100, max: 100 },
@@ -24,6 +25,7 @@ function swatch(color) {
 
 export default function MaskPanel() {
   const { state, dispatch, liveUpdate, beginEdit, commitEdit, commitPatch } = useProject()
+  const { confirm } = useFeedback()
   const active = state.images.find((im) => im.id === state.activeId)
   if (!active) return null
 
@@ -46,8 +48,10 @@ export default function MaskPanel() {
     if (mask.type === 'color') dispatch({ type: 'SET_MASK_PICK_COLOR', on: true })
   }
 
-  function clearBrush() {
+  async function clearBrush() {
     if (!selectedMask) return
+    const ok = await confirm({ title: 'Clear everything painted on this mask?', message: 'Brush strokes cannot be undone.', confirmLabel: 'Clear', danger: true })
+    if (!ok) return
     clearBrushCanvas(selectedMask.id)
     live({ brushVersion: (selectedMask.brushVersion || 0) + 1 })
   }
@@ -58,7 +62,21 @@ export default function MaskPanel() {
     dispatch({ type: 'SET_MASK_PICK_COLOR', on: type === 'color' })
   }
 
-  function deleteMask() {
+  // Duplicate: same shape, settings and painted pixels, added right after the original and
+  // selected — handy for stacking an effect or editing a variation.
+  function duplicateSelected() {
+    if (!selectedMask) return
+    const copy = duplicateMask(selectedMask)
+    if (copy.type === 'brush') copyBrushCanvas(selectedMask.id, copy.id)
+    const i = masks.findIndex((m) => m.id === selectedMask.id)
+    commitPatch(active.id, { masks: [...masks.slice(0, i + 1), copy, ...masks.slice(i + 1)] })
+    dispatch({ type: 'SET_SELECTED_MASK', id: copy.id })
+  }
+
+  async function deleteMask() {
+    const name = `${MASK_LABELS[selectedMask?.type] || 'Mask'} ${masks.findIndex((m) => m.id === state.selectedMaskId) + 1}`
+    const ok = await confirm({ title: `Delete "${name}"?`, message: 'Its adjustments go with it. You can bring it back with Undo.', confirmLabel: 'Delete', danger: true })
+    if (!ok) return
     // Brush pixels are kept (not deleted) so Undo and snapshots can bring the mask back.
     commitPatch(active.id, { masks: masks.filter((m) => m.id !== state.selectedMaskId) })
     dispatch({ type: 'SET_SELECTED_MASK', id: null })
@@ -105,14 +123,19 @@ export default function MaskPanel() {
               <input type="checkbox" checked={state.maskOverlay} onChange={(e) => dispatch({ type: 'SET_MASK_OVERLAY', on: e.target.checked })} />
               Show overlay
             </label>
-            <button className="action secondary" style={{ flex: 'none', padding: '6px 14px' }} onClick={deleteMask}>Delete</button>
+          </div>
+          <div className="btnrow" style={{ marginTop: 6 }}>
+            <button type="button" className="action secondary" onClick={duplicateSelected}>Duplicate</button>
+            <button type="button" className="action secondary" onClick={deleteMask}>Delete</button>
           </div>
 
           {selectedMask.type === 'brush' && (
             <div style={{ marginTop: 8 }}>
               <div className="meta-empty" style={{ marginBottom: 8 }}>Drag directly on the photo to paint.</div>
+              <div className="mask-section-label">Brush (for new strokes)</div>
               <Slider label="Brush size" value={state.brushSettings.size} min={2} max={80} defaultValue={20} onChange={(v) => dispatch({ type: 'SET_BRUSH_SETTING', patch: { size: v } })} />
-              <Slider label="Hardness" value={state.brushSettings.hardness} min={0} max={100} defaultValue={60} onChange={(v) => dispatch({ type: 'SET_BRUSH_SETTING', patch: { hardness: v } })} />
+              {/* Feather = soft edge (Lightroom's name); stored as hardness = 100 − feather. */}
+              <Slider label="Feather" value={100 - state.brushSettings.hardness} min={0} max={100} defaultValue={40} onChange={(v) => dispatch({ type: 'SET_BRUSH_SETTING', patch: { hardness: 100 - v } })} />
               <Slider label="Flow" value={state.brushSettings.opacity} min={5} max={100} defaultValue={100} onChange={(v) => dispatch({ type: 'SET_BRUSH_SETTING', patch: { opacity: v } })} />
               <div className="btnrow" style={{ marginTop: 0 }}>
                 <button
@@ -126,11 +149,17 @@ export default function MaskPanel() {
             </div>
           )}
 
-          {(selectedMask.type === 'linear' || selectedMask.type === 'radial') && (
-            <div style={{ marginTop: 8 }}>
-              <Slider label="Feather" value={selectedMask.feather ?? 100} min={0} max={100} defaultValue={100} onBegin={begin} onChange={(v) => live({ feather: v })} onCommit={commit} />
-            </div>
-          )}
+          {/* Mask properties — editable any time, also after painting. */}
+          <div style={{ marginTop: 8 }}>
+            <div className="mask-section-label">Mask</div>
+            {(selectedMask.type === 'linear' || selectedMask.type === 'radial') && (
+              <Slider label="Feather" value={selectedMask.feather ?? 100} min={0} max={100} defaultValue={selectedMask.type === 'radial' ? 50 : 100} onBegin={begin} onChange={(v) => live({ feather: v })} onCommit={commit} />
+            )}
+            {selectedMask.type === 'brush' && (
+              <Slider label="Feather" value={selectedMask.feather ?? 0} min={0} max={100} defaultValue={0} onBegin={begin} onChange={(v) => live({ feather: v })} onCommit={commit} />
+            )}
+            <Slider label="Amount" value={selectedMask.amount ?? 100} min={0} max={100} defaultValue={100} onBegin={begin} onChange={(v) => live({ amount: v })} onCommit={commit} />
+          </div>
 
           <div className="mask-range">
             {!RANGE_ONLY.has(selectedMask.type) && (

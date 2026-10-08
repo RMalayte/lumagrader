@@ -5,6 +5,24 @@ export const POPUP_FROM = '0.9.4'
 
 export const CHANGELOG = [
   {
+    version: '1.0.0',
+    date: '2026-10-08',
+    title: 'New look',
+    items: [
+      'New LumaGrader logo and a cleaner, calmer editor.',
+      'Top bar simplified: Save, Export and one ⋯ menu for everything else.',
+      'Resize the editing panel by dragging its edge.',
+      'Filmstrip: show or hide it, put it on the left or at the bottom, pick the thumbnail size.',
+      'Slider values are easier to type in, and changed values are highlighted.',
+      'Clearer saving and exporting: progress, Saved ✓, and Try again if something fails.',
+      'Asks before removing a photo or deleting a mask.',
+      'Crop: the frame stays on the photo when you straighten (no black corners), plus edge handles and a grid.',
+      'Masks: Duplicate, Feather and Amount you can change after painting, smoother edges, and the red overlay only while you paint.',
+      'Fixed: the photo flickered or changed brightness when you let go of a slider.',
+      'Removed: the LUTs section.',
+    ],
+  },
+  {
     version: '0.9.8',
     date: '2026-09-27',
     title: 'More Lightroom presets',

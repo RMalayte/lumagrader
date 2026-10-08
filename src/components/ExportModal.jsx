@@ -36,6 +36,8 @@ export default function ExportModal({ mode, onClose }) {
   const [preserveMetadata, setPreserveMetadata] = useState(true)
   const [watermark, setWatermark] = useState({ type: 'none', text: '', position: 'bottom-right', opacity: 70, size: 30, logoImg: null })
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState(null) // { done, total, stage }
+  const [error, setError] = useState(null)
 
   function updateWatermark(patch) {
     setWatermark((w) => ({ ...w, ...patch }))
@@ -88,9 +90,12 @@ export default function ExportModal({ mode, onClose }) {
   async function runExport() {
     if (!targets.length || busy) return
     setBusy(true)
+    setError(null)
+    setProgress({ done: 0, total: targets.length, stage: 'render' })
     try {
       if (targets.length === 1) {
         const blob = await renderFinal(targets[0])
+        setProgress({ done: 1, total: 1, stage: 'save' })
         if (!blob) throw new Error('Encoding failed')
         download(blob, targets[0].name.replace(/\.[^.]+$/, '') + '.' + formatExt(format))
       } else {
@@ -105,16 +110,21 @@ export default function ExportModal({ mode, onClose }) {
           for (let n = 2; used.has(fname); n++) fname = `${base} (${n}).${formatExt(format)}`
           used.add(fname)
           zip.file(fname, blob)
+          setProgress((p) => ({ ...p, done: p.done + 1 }))
         }
+        setProgress((p) => ({ ...p, stage: 'zip' }))
         download(await zip.generateAsync({ type: 'blob' }), 'lumagrader-export.zip')
       }
-      toast(targets.length === 1 ? 'Export ready — check your downloads' : `Exported ${targets.length} photos (.zip)`)
+      toast(targets.length === 1 ? `Exported "${targets[0].name.replace(/\.[^.]+$/, '')}" — check your downloads` : `Exported ${targets.length} photos as a .zip — check your downloads`)
       onClose()
     } catch (err) {
       console.error('Export failed', err)
-      toast('Export failed. Try a smaller size or another format.', { type: 'error', duration: 7000 })
+      // Stay open with the reason, so a different size or format can be tried right away.
+      const reason = err?.message && /Encoding failed/.test(err.message) ? err.message + '.' : 'The photo could not be processed.'
+      setError(`Export failed. ${reason} Try a smaller size or another format.`)
     } finally {
       setBusy(false)
+      setProgress(null)
     }
   }
 
@@ -207,11 +217,20 @@ export default function ExportModal({ mode, onClose }) {
               </div>
             </>
           )}
+          {progress && (
+            <div className="export-progress" role="status" aria-live="polite">
+              <div className="export-progress-bar"><span style={{ width: `${(progress.stage === 'zip' ? 1 : progress.done / progress.total) * 100}%` }} /></div>
+              <div className="export-progress-text">
+                {progress.stage === 'zip' ? 'Packing the .zip…' : progress.total > 1 ? `Exporting ${Math.min(progress.done + 1, progress.total)} of ${progress.total}…` : 'Exporting…'}
+              </div>
+            </div>
+          )}
+          {error && <div className="export-error" role="alert">{error}</div>}
         </div>
         <div className="modal-footer">
-          <button className="action secondary" onClick={onClose}>Cancel</button>
+          <button className="action secondary" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="action primary" onClick={runExport} disabled={busy || !targets.length}>
-            {busy ? 'Exporting…' : `Export ${targets.length > 1 ? `(${targets.length})` : ''}`}
+            {busy ? <><span className="spinner" aria-hidden="true" /> Exporting…</> : error ? 'Try again' : `Export ${targets.length > 1 ? `(${targets.length})` : ''}`}
           </button>
         </div>
       </div>

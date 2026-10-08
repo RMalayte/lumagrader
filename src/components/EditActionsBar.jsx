@@ -1,59 +1,33 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import MoreMenu, { useDismiss } from './MoreMenu.jsx'
 import { useProject } from '../store/ProjectContext'
 import { useFeedback } from '../store/FeedbackContext'
 import { defaultSettings } from '../engine/defaults'
 import { shouldIgnoreShortcut, isMod } from '../engine/keyboard'
 import Icon from './Icon.jsx'
-import { kofiUrl } from '../config'
 
 // Export pulls in jszip + piexifjs — loaded only when the export dialog is first opened.
 const ExportModal = lazy(() => import('./ExportModal.jsx'))
 
-const VIEW_ITEMS = [
-  { mode: 'filmstrip', label: 'Edit (filmstrip)', icon: 'filmstrip' },
-  { mode: 'loupe', label: 'Loupe (photo only)', icon: 'loupe' },
-  { mode: 'catalog', label: 'Projects', icon: 'grid' },
-]
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
 
-/** Closes a dropdown on outside press or Escape. */
-function useDismiss(open, setOpen, ref) {
-  useEffect(() => {
-    if (!open) return
-    function onPointerDown(e) {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false)
-    }
-    function onKeyDown(e) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    window.addEventListener('pointerdown', onPointerDown)
-    window.addEventListener('keydown', onKeyDown)
-    return () => {
-      window.removeEventListener('pointerdown', onPointerDown)
-      window.removeEventListener('keydown', onKeyDown)
-    }
-  }, [open, setOpen, ref])
-}
-
-// Photo-level commands (Reset, Copy, Remove, Export) in the top header, reachable in every
-// view. Copy/Remove/Reset act on the multi-selection when there is one, otherwise on the
-// active photo. Destructive actions are instant but undoable from the toast.
-export default function EditActionsBar({ onAbout, onSaveToDevice }) {
+// Photo commands in the top header: Export (primary) and a "⋯" menu holding Reset, Copy,
+// Remove plus the app-wide items passed in `appItems`. Copy/Remove/Reset act on the
+// multi-selection when there is one, otherwise on the active photo. Remove asks first and is
+// also undoable from the toast.
+export default function EditActionsBar({ appItems = [] }) {
   const { state, dispatch, commitSettings, undo } = useProject()
-  const { toast } = useFeedback()
+  const { toast, confirm } = useFeedback()
   const [modalMode, setModalMode] = useState(null) // null | 'single' | 'selected' | 'all'
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const menuRef = useRef(null)
-  const [moreOpen, setMoreOpen] = useState(false) // mobile "⋯" menu (Reset / Copy / Remove)
-  const moreRef = useRef(null)
 
   const active = state.images.find((im) => im.id === state.activeId)
   const selectedCount = state.selectedIds.length
   const hasSelection = selectedCount > 0
 
   useDismiss(exportMenuOpen, setExportMenuOpen, menuRef)
-  useDismiss(moreOpen, setMoreOpen, moreRef)
 
   // Ctrl/⌘+E = export this photo, Delete/Backspace = remove (undoable).
   useEffect(() => {
@@ -95,8 +69,15 @@ export default function EditActionsBar({ onAbout, onSaveToDevice }) {
     toast(`Edits copied to ${plural(others.length, 'photo')}`, { action: { label: 'Undo', onClick: undoAll(others) } })
   }
 
-  function removePhotos() {
+  async function removePhotos() {
     const ids = targetIds
+    const ok = await confirm({
+      title: ids.length > 1 ? `Remove ${plural(ids.length, 'photo')}?` : `Remove "${active.name}"?`,
+      message: 'Removes it from this session together with its edits. A saved project keeps it until you save again.',
+      confirmLabel: 'Remove',
+      danger: true,
+    })
+    if (!ok) return
     const entries = state.images.map((image, index) => ({ image, index })).filter(({ image }) => ids.includes(image.id))
     const prevActiveId = state.activeId
     dispatch({ type: 'REMOVE_IMAGES', ids })
@@ -110,75 +91,16 @@ export default function EditActionsBar({ onAbout, onSaveToDevice }) {
     setModalMode(mode)
   }
 
+  const photoItems = [
+    { heading: hasSelection ? `${selectedCount} selected photos` : 'This photo' },
+    { label: hasSelection ? `Reset edits (${selectedCount})` : 'Reset edits', icon: 'reset', onClick: resetPhotos, title: 'Back to the original — undoable' },
+    { label: hasSelection ? `Copy edits to selected (${selectedCount})` : 'Copy edits to all photos', icon: 'copy', onClick: copySettings, title: "Crop and masks stay per photo" },
+    { label: hasSelection ? `Remove (${selectedCount})…` : 'Remove photo…', icon: 'trash', onClick: removePhotos, danger: true, kbd: 'Del' },
+    { sep: true },
+  ]
+
   return (
     <div className="header-actions" role="toolbar" aria-label="Photo actions">
-      {/* Mobile: the three photo commands collapse into one "⋯" menu to keep the header on one row. */}
-      <div className="menu-anchor show-mobile" ref={moreRef}>
-        <button
-          type="button"
-          className="tbtn icon-only"
-          onClick={() => setMoreOpen((v) => !v)}
-          aria-haspopup="menu"
-          aria-expanded={moreOpen}
-          aria-label="More photo actions"
-          title="More"
-        >
-          <Icon name="more" size={18} strokeWidth={3} />
-        </button>
-        {moreOpen && (
-          <div className="dropdown-menu" role="menu">
-            {VIEW_ITEMS.map((v) => (
-              <button
-                key={v.mode}
-                type="button"
-                role="menuitemradio"
-                aria-checked={state.viewMode === v.mode}
-                className={state.viewMode === v.mode ? 'is-current' : ''}
-                onClick={() => { setMoreOpen(false); dispatch({ type: 'SET_VIEW_MODE', mode: v.mode }) }}
-              >
-                <Icon name={v.icon} size={14} /> {v.label}
-              </button>
-            ))}
-            <div className="menu-sep" role="separator" />
-            <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); resetPhotos() }}>
-              <Icon name="reset" size={14} /> {hasSelection ? `Reset (${selectedCount})` : 'Reset edits'}
-            </button>
-            <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); copySettings() }}>
-              <Icon name="copy" size={14} /> {hasSelection ? `Copy to selected (${selectedCount})` : 'Copy edits to all'}
-            </button>
-            {onSaveToDevice && (
-              <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onSaveToDevice() }}>
-                <Icon name="toDevice" size={14} /> Save project to device
-              </button>
-            )}
-            {kofiUrl() && (
-              <a role="menuitem" className="menu-link" href={kofiUrl()} target="_blank" rel="noopener noreferrer" onClick={() => setMoreOpen(false)}>
-                <Icon name="coffee" size={14} /> Support on Ko-fi
-              </a>
-            )}
-            {onAbout && (
-              <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); onAbout() }}>
-                <Icon name="info" size={14} /> About · What&apos;s new
-              </button>
-            )}
-            <button type="button" role="menuitem" className="danger-item" onClick={() => { setMoreOpen(false); removePhotos() }}>
-              <Icon name="trash" size={14} /> {hasSelection ? `Remove (${selectedCount})` : 'Remove photo'}
-            </button>
-          </div>
-        )}
-      </div>
-      <button type="button" className="tbtn hide-mobile" onClick={resetPhotos} title={hasSelection ? 'Reset all edits on the selected photos' : 'Reset all edits on this photo'}>
-        <Icon name="reset" size={15} />
-        <span className="btn-label">{hasSelection ? `Reset (${selectedCount})` : 'Reset'}</span>
-      </button>
-      <button type="button" className="tbtn hide-mobile" onClick={copySettings} title="Copy this photo's edits (crop & masks stay per photo)">
-        <Icon name="copy" size={15} />
-        <span className="btn-label">{hasSelection ? `Copy to selected (${selectedCount})` : 'Copy to all'}</span>
-      </button>
-      <button type="button" className="tbtn danger hide-mobile" onClick={removePhotos} title="Remove from this session (Del) — undoable">
-        <Icon name="trash" size={15} />
-        <span className="btn-label">{hasSelection ? `Remove (${selectedCount})` : 'Remove'}</span>
-      </button>
       <div className="menu-anchor" ref={menuRef}>
         <button
           type="button"
@@ -208,6 +130,7 @@ export default function EditActionsBar({ onAbout, onSaveToDevice }) {
           </div>
         )}
       </div>
+      <MoreMenu items={[...photoItems, ...appItems]} label="More actions" />
       {modalMode && (
         <Suspense fallback={<div className="modal-overlay" aria-busy="true"><span className="spinner" /></div>}>
           <ExportModal mode={modalMode} onClose={() => setModalMode(null)} />

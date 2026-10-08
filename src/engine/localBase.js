@@ -89,6 +89,9 @@ const cache = new WeakMap()
  * Cached per source object — it depends only on the photo's pixels, never on the sliders.
  */
 export function getLocalBaseMap(source) {
+  // The drag proxy (imageStore.getDragProxy) remembers the preview it was made from: use the
+  // preview's map, so Highlights/Shadows don't shift between dragging and release.
+  if (source.source && source.source !== source) source = source.source
   let map = cache.get(source)
   if (map) return map
   const sw = source.naturalWidth ?? source.width

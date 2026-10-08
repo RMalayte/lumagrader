@@ -1,8 +1,9 @@
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import ThumbnailStrip from './components/ThumbnailStrip.jsx'
 import CanvasPreview from './components/CanvasPreview.jsx'
 import ControlsPanel from './components/ControlsPanel.jsx'
 import EditActionsBar from './components/EditActionsBar.jsx'
+import MoreMenu from './components/MoreMenu.jsx'
 import Icon from './components/Icon.jsx'
 import { useProject, visibleImages } from './store/ProjectContext.jsx'
 import { useSaveProject } from './hooks/useSaveProject.js'
@@ -20,16 +21,68 @@ import { kofiUrl } from './config.js'
 import WhatsNew from './components/WhatsNew.jsx'
 
 const VIEW_MODES = [
-  { mode: 'filmstrip', label: 'Filmstrip', icon: 'filmstrip' },
-  { mode: 'loupe', label: 'Loupe', icon: 'loupe' },
-  { mode: 'catalog', label: 'Projects', icon: 'grid' },
+  { mode: 'filmstrip', label: 'Edit', icon: 'filmstrip', title: 'Edit — filmstrip, photo and panels' },
+  { mode: 'loupe', label: 'Loupe', icon: 'loupe', title: 'Loupe — the photo only' },
+  { mode: 'catalog', label: 'Projects', icon: 'grid', title: 'Projects — saved projects' },
 ]
+
+// Desktop layout preferences, remembered per browser.
+const LAYOUT_KEY = 'lumagrader.layout'
+const THUMB_SIZES = [{ label: 'S', px: 48 }, { label: 'M', px: 64 }, { label: 'L', px: 96 }, { label: 'XL', px: 128 }]
+const PANEL_MIN = 260, PANEL_MAX = 520
+function readLayout() {
+  const def = { panelW: 300, strip: true, stripPos: 'left', thumb: 64 }
+  try { return { ...def, ...JSON.parse(window.localStorage.getItem(LAYOUT_KEY) || '{}') } } catch { return def }
+}
 
 // Mobile: the filmstrip is hidden by default so the photo gets the room (like Lightroom
 // Mobile); a toolbar button shows it, and swiping the photo changes photos. Remembered.
 const STRIP_KEY = 'lumagrader.mobileStrip'
 function readStripPref() {
   try { return window.localStorage.getItem(STRIP_KEY) === '1' } catch { return false }
+}
+
+/** Drag handle between the photo and the editing panel (desktop). Double-click = default width. */
+function PanelResizer({ width, onResize }) {
+  const [dragging, setDragging] = useState(false)
+  const startRef = useRef(null)
+  function onPointerDown(e) {
+    e.preventDefault()
+    startRef.current = { x: e.clientX, w: width }
+    setDragging(true)
+    const move = (ev) => {
+      const w = startRef.current.w - (ev.clientX - startRef.current.x)
+      onResize(Math.round(Math.min(PANEL_MAX, Math.max(PANEL_MIN, w))))
+    }
+    const up = () => {
+      setDragging(false)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+  function onKeyDown(e) {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return
+    e.preventDefault()
+    onResize(Math.min(PANEL_MAX, Math.max(PANEL_MIN, width + (e.key === 'ArrowLeft' ? 20 : -20))))
+  }
+  return (
+    <div
+      className={'panel-resizer' + (dragging ? ' is-dragging' : '')}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize editing panel"
+      aria-valuemin={PANEL_MIN}
+      aria-valuemax={PANEL_MAX}
+      aria-valuenow={width}
+      tabIndex={0}
+      title="Drag to resize the panel · double-click to reset"
+      onPointerDown={onPointerDown}
+      onDoubleClick={() => onResize(300)}
+      onKeyDown={onKeyDown}
+    />
+  )
 }
 
 export default function App() {
@@ -43,6 +96,14 @@ export default function App() {
   }, [])
   const { state, dispatch, undo, redo } = useProject()
   useSessionRecovery()
+  const [layout, setLayoutState] = useState(readLayout)
+  const setLayout = useCallback((patch) => {
+    setLayoutState((cur) => {
+      const next = { ...cur, ...patch }
+      try { window.localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)) } catch { /* private mode */ }
+      return next
+    })
+  }, [])
 
   // Saved presets load once at startup, whichever panel or tab is open.
   useEffect(() => {
@@ -52,7 +113,7 @@ export default function App() {
   }, [dispatch])
   const activePhoto = state.images.find((im) => im.id === state.activeId)
   const editingPhoto = !!activePhoto && state.viewMode !== 'catalog'
-  const { saveProject, saveToDevice, saving, hasImages } = useSaveProject()
+  const { saveProject, saveToDevice, saving, justSaved, hasImages } = useSaveProject()
   const [showShortcuts, setShowShortcuts] = useState(false)
   const [showAbout, setShowAbout] = useState(false)
   const closeAbout = useCallback(() => setShowAbout(false), [])
@@ -114,11 +175,38 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [state.isDirty])
 
+  const showPhotoActions = state.viewMode !== 'catalog' && !!activePhoto
+  const showStrip = state.viewMode !== 'loupe' && (isMobile ? stripOpen : layout.strip)
+  const stripBottom = !isMobile && layout.stripPos === 'bottom'
+
+  // Secondary commands, in the header's "⋯" menu.
+  const appItems = [
+    // Mobile: the view switch is hidden while editing, so it lives here too.
+    ...(isMobile && editingPhoto
+      ? [{ heading: 'View' }, ...VIEW_MODES.map((v) => ({ label: v.label, icon: v.icon, current: state.viewMode === v.mode, onClick: () => dispatch({ type: 'SET_VIEW_MODE', mode: v.mode }) })), { sep: true }]
+      : []),
+    ...(!isMobile && state.viewMode !== 'catalog'
+      ? [
+          { heading: 'Filmstrip' },
+          { label: 'Show filmstrip', icon: 'filmstrip', checked: layout.strip, onClick: () => setLayout({ strip: !layout.strip }), hidden: state.viewMode === 'loupe' },
+          { ariaLabel: 'Filmstrip position', row: [{ label: 'Left', current: layout.stripPos === 'left', onClick: () => setLayout({ stripPos: 'left', strip: true }) }, { label: 'Bottom', current: layout.stripPos === 'bottom', onClick: () => setLayout({ stripPos: 'bottom', strip: true }) }] },
+          { ariaLabel: 'Thumbnail size', row: THUMB_SIZES.map((t) => ({ label: t.label, title: `Thumbnails ${t.px}px`, current: layout.thumb === t.px, onClick: () => setLayout({ thumb: t.px, strip: true }) })) },
+          { sep: true },
+        ]
+      : []),
+    { heading: 'Project' },
+    { label: 'Save to device (.lumagrader)', icon: 'toDevice', onClick: saveToDevice, disabled: saving || !hasImages },
+    { sep: true },
+    { label: 'Keyboard shortcuts', icon: 'keyboard', kbd: '?', onClick: () => setShowShortcuts(true), hidden: isMobile },
+    kofiUrl() ? { href: kofiUrl(), label: 'Support on Ko-fi', icon: 'coffee' } : null,
+    { label: "About · What's new", icon: 'info', onClick: () => setShowAbout(true) },
+  ]
+
   return (
     <div className="app">
       <header className={'app-header' + (editingPhoto ? ' is-editing' : '')}>
         <div className="header-left">
-          <img src={logo} alt="LumaGrader by Rax" className="app-logo" width="508" height="120" />
+          <img src={logo} alt="LumaGrader" className="app-logo" width="666" height="120" />
           {state.currentProjectName && (
             <button type="button" className="project-name" onClick={() => saveProject({ rename: true })} title="Rename project">
               {state.currentProjectName}
@@ -127,14 +215,14 @@ export default function App() {
           )}
         </div>
         <nav className="view-toggle" aria-label="View">
-          {VIEW_MODES.map(({ mode, label, icon }) => (
+          {VIEW_MODES.map(({ mode, label, icon, title }) => (
             <button
               key={mode}
               type="button"
-              className={'tbtn' + (state.viewMode === mode ? ' active' : '')}
+              className={'tbtn seg' + (state.viewMode === mode ? ' active' : '')}
               aria-pressed={state.viewMode === mode}
               onClick={() => dispatch({ type: 'SET_VIEW_MODE', mode })}
-              title={label}
+              title={title}
             >
               <Icon name={icon} size={15} />
               <span className="btn-label">{label}</span>
@@ -159,52 +247,38 @@ export default function App() {
           </div>
         )}
         <div className="header-right">
-          {state.viewMode !== 'catalog' && <EditActionsBar onAbout={() => setShowAbout(true)} onSaveToDevice={hasImages ? saveToDevice : null} />}
           <button
             type="button"
-            className={'tbtn' + (state.isDirty ? ' has-changes' : '')}
+            className={'tbtn save-btn' + (state.isDirty ? ' is-unsaved' : '') + (justSaved ? ' just-saved' : '')}
             onClick={() => saveProject()}
             disabled={saving || !hasImages}
-            title="Save project (Ctrl/⌘+S)"
+            aria-live="polite"
+            title={saving ? 'Saving…' : state.isDirty || !state.currentProjectId ? 'Save project in this browser (Ctrl/⌘+S)' : 'All changes saved (Ctrl/⌘+S)'}
           >
-            <Icon name="save" size={15} />
-            <span className="btn-label">{saving ? 'Saving…' : state.isDirty || !state.currentProjectId ? 'Save Project' : 'Saved'}</span>
+            {saving ? <span className="spinner" aria-hidden="true" /> : <Icon name={justSaved ? 'check' : 'save'} size={15} />}
+            <span className="btn-label">{saving ? 'Saving…' : justSaved ? 'Saved' : state.isDirty || !state.currentProjectId ? 'Save' : 'Saved'}</span>
             {state.isDirty && !saving && <span className="unsaved-dot" aria-label="unsaved changes" />}
           </button>
-          <button
-            type="button"
-            className="tbtn icon-only hide-mobile"
-            onClick={saveToDevice}
-            disabled={saving || !hasImages}
-            aria-label="Save project to device"
-            title="Save project to device (.lumagrader file)"
-          >
-            <Icon name="toDevice" size={16} />
-          </button>
-          <button type="button" className="tbtn icon-only hide-mobile" onClick={() => setShowShortcuts(true)} aria-label="Keyboard shortcuts (?)" title="Keyboard shortcuts (?)">
-            <Icon name="keyboard" size={16} />
-          </button>
-          {kofiUrl() && (
-            <a className="tbtn support-link hide-mobile" href={kofiUrl()} target="_blank" rel="noopener noreferrer" title="Support LumaGrader on Ko-fi">
-              <Icon name="coffee" size={15} />
-              <span className="btn-label">Support</span>
-            </a>
-          )}
-          <button type="button" className="tbtn icon-only about-btn" onClick={() => setShowAbout(true)} aria-label="About LumaGrader" title="About LumaGrader · what's new">
-            <Icon name="info" size={16} />
-          </button>
+          {showPhotoActions ? <EditActionsBar appItems={appItems} /> : <MoreMenu items={appItems} label="More" />}
         </div>
       </header>
-      <main className={'app-main view-' + state.viewMode}>
+      <main
+        className={'app-main view-' + state.viewMode + (stripBottom ? ' strip-bottom' : '')}
+        style={{ '--controls-w': layout.panelW + 'px' }}
+      >
         {state.viewMode === 'catalog' ? (
           <Suspense fallback={<div className="empty"><span className="spinner" /></div>}>
             <CatalogView />
           </Suspense>
         ) : (
           <>
-            {state.viewMode !== 'loupe' && (!isMobile || stripOpen) && <ThumbnailStrip />}
-            <CanvasPreview />
-            {state.viewMode !== 'loupe' && <ControlsPanel />}
+            {showStrip && !stripBottom && <ThumbnailStrip thumbSize={isMobile ? null : layout.thumb} />}
+            <div className="work-row">
+              <CanvasPreview />
+              {state.viewMode !== 'loupe' && activePhoto && !isMobile && <PanelResizer width={layout.panelW} onResize={(w) => setLayout({ panelW: w })} />}
+              {state.viewMode !== 'loupe' && <ControlsPanel />}
+            </div>
+            {showStrip && stripBottom && <ThumbnailStrip thumbSize={layout.thumb} />}
           </>
         )}
       </main>

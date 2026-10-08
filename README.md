@@ -18,7 +18,7 @@ the browser. There is no server, account, analytics or upload.
 - **Optics & geometry**: distortion, lens vignetting, chromatic aberration removal, crop,
   straighten and rotate
 - **Local edits**: Heal/Clone spots; Linear, Radial, Brush, Luminance and Color masks
-- **Organise**: albums, star ratings, snapshots, presets (`.json` and `.xmp` import), `.cube` LUTs
+- **Organise**: albums, star ratings, snapshots, presets (`.json` and `.xmp` import)
 - **Save**: projects in the browser, `.lumagrader` project files on your device, crash recovery
 - **Export**: JPEG/PNG/WebP, resize, watermark, batch export as ZIP
 - **Works offline** after the first visit, and can be installed as an app

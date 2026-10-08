@@ -6,7 +6,7 @@ import Icon from './Icon.jsx'
 import StarRating from './StarRating.jsx'
 import AlbumBar from './AlbumBar.jsx'
 
-export default function ThumbnailStrip() {
+export default function ThumbnailStrip({ thumbSize = null }) {
   const { state, dispatch } = useProject()
   const { importFiles, importFolder, progress } = useImportPhotos()
   const inputId = useId()
@@ -22,7 +22,7 @@ export default function ThumbnailStrip() {
   }
 
   return (
-    <nav className="col thumbs" aria-label="Photos">
+    <nav className="col thumbs" aria-label="Photos" style={thumbSize ? { '--thumb': thumbSize + 'px' } : undefined}>
       <label className="addbtn" htmlFor={inputId} title="Add photos" tabIndex={0} onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && document.getElementById(inputId)?.click()}>
         <Icon name="plus" size={18} />
         <span className="addbtn-label">Add</span>

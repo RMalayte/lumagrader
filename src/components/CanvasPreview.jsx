@@ -261,13 +261,15 @@ export default function CanvasPreview() {
   useEffect(() => {
     if (!active || !preview || compareOn || cropMode || !canvasRef.current) return
     const canvas = canvasRef.current
-    const dragProxy = interacting ? getDragProxy(active.id) : null
+    // Detail (sharpening / noise reduction) works on single pixels: on the small proxy it
+    // looks much stronger than on the real preview, so those sliders drag on the full preview.
+    const dragProxy = interacting && state.openAccordionId !== 'detail' ? getDragProxy(active.id) : null
     const source = dragProxy || (wantFullRes && fullImage) || preview
     const srcW = source.naturalWidth ?? source.width
     const raf = requestAnimationFrame(() => {
       const overlayId = state.maskOverlay && state.openAccordionId === 'masks' ? state.selectedMaskId : null
       // While dragging a non-Detail slider, sharpening/noise reduction wait for the release.
-      const fast = !!dragProxy && state.openAccordionId !== 'detail'
+      const fast = !!dragProxy
       const s = holdBefore ? { ...defaultSettings(), geometry: active.settings.geometry } : { ...effectiveSettings(active), _maskOverlayId: overlayId, _fastPreview: fast }
       const measure = perfEnabled()
       const t0 = measure ? performance.now() : 0

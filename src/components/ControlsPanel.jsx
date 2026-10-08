@@ -7,7 +7,6 @@ import Accordion from './Accordion.jsx'
 import Slider from './Slider.jsx'
 import PresetChips from './PresetChips.jsx'
 import ColorProfilePicker from './ColorProfilePicker.jsx'
-import LutPanel from './LutPanel.jsx'
 import CurveEditor from './CurveEditor.jsx'
 import HSLPanel from './HSLPanel.jsx'
 import ColorGradePicker from './ColorGradePicker.jsx'
@@ -72,12 +71,11 @@ const GROUPS = [
   {
     id: 'look',
     label: 'Look',
-    panels: ['profile', 'presets', 'luts', 'snapshots'],
+    panels: ['profile', 'presets', 'snapshots'],
     render: () => (
       <>
         <ColorProfilePicker />
         <PresetChips />
-        <LutPanel />
         <SnapshotsPanel />
       </>
     ),

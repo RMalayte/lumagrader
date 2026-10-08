@@ -98,8 +98,9 @@ const encode255 = (y) => ENCODE_LUT[Math.min(4095, Math.max(0, Math.round(y * 40
 function renderTonalCanvas2D(canvas, src, s, luts = {}) {
   const w = src.naturalWidth ?? src.width
   const h = src.naturalHeight ?? src.height
-  canvas.width = w
-  canvas.height = h
+  // Same as the WebGL path: resizing (even to the same size) clears the canvas → flicker.
+  if (canvas.width !== w) canvas.width = w
+  if (canvas.height !== h) canvas.height = h
   const ctx = canvas.getContext('2d')
 
   const profile = getProfileBias(s.colorProfile)
@@ -116,6 +117,7 @@ function renderTonalCanvas2D(canvas, src, s, luts = {}) {
   const wb = wbMatrixFor(s, profile.temp || 0)
   const linearOn = toneOn || !!wb
   const dehaze = (s.dehaze || 0) / 100
+  ctx.clearRect(0, 0, w, h) // the canvas is no longer reset by resizing (transparent PNGs)
   ctx.drawImage(src, 0, 0)
 
   const curveLut = s.curve ? buildCurveLUT(s.curve) : null

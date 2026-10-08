@@ -2,6 +2,7 @@ import { useProject } from '../store/ProjectContext'
 import { spotRadius, spotSize } from '../engine/heal'
 import Accordion from './Accordion.jsx'
 import Slider from './Slider.jsx'
+import { useFeedback } from '../store/FeedbackContext'
 
 const MODES = [
   { id: 'heal', label: 'Heal' },
@@ -11,6 +12,7 @@ const MODES = [
 /** Spot removal. The on-photo part (tap to add, drag to move) is SpotOverlay. */
 export default function HealPanel() {
   const { state, dispatch, liveUpdate, beginEdit, commitEdit, commitPatch } = useProject()
+  const { confirm } = useFeedback()
   const active = state.images.find((im) => im.id === state.activeId)
   if (!active) return null
   const spots = active.settings.spots || []
@@ -78,7 +80,12 @@ export default function HealPanel() {
           <button
             type="button"
             className="action secondary"
-            onClick={() => { commitPatch(active.id, { spots: [] }); dispatch({ type: 'SET_SELECTED_SPOT', id: null }) }}
+            onClick={async () => {
+              const ok = await confirm({ title: `Remove all ${spots.length} spots?`, message: 'You can bring them back with Undo.', confirmLabel: 'Remove all', danger: true })
+              if (!ok) return
+              commitPatch(active.id, { spots: [] })
+              dispatch({ type: 'SET_SELECTED_SPOT', id: null })
+            }}
           >
             Clear all ({spots.length})
           </button>

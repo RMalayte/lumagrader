@@ -133,7 +133,7 @@ export default function SpotOverlay({ active }) {
         const s = frame.toView(sp.sx * W0, sp.sy * H0)
         const r = sp.r * long
         const sel = sp.id === selectedId
-        const color = sel ? 'var(--accent2)' : '#fff'
+        const color = sel ? 'var(--accent)' : '#fff'
         return (
           <g key={sp.id} className={'spot' + (sel ? ' selected' : '')}>
             {sel && (
@@ -149,7 +149,7 @@ export default function SpotOverlay({ active }) {
             )}
             <circle cx={t.x} cy={t.y} r={r} fill="none" stroke="rgba(0,0,0,.55)" strokeWidth={stroke * 2.2} />
             <circle
-              cx={t.x} cy={t.y} r={r} fill={sel ? 'rgba(245,166,35,0.12)' : 'rgba(0,0,0,0.001)'} stroke={color} strokeWidth={stroke}
+              cx={t.x} cy={t.y} r={r} fill={sel ? 'rgba(101,191,255,0.12)' : 'rgba(0,0,0,0.001)'} stroke={color} strokeWidth={stroke}
               className="spot-handle" onPointerDown={startDrag(sp, 'target')}
             >
               <title>{sp.mode === 'clone' ? 'Clone spot' : 'Heal spot'}</title>
