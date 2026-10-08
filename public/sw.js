@@ -3,7 +3,7 @@
 //  - Page (navigation): network-first → always picks up new deploys; cached copy offline.
 //  - /assets/* (hashed, immutable): cache-first.
 //  - Other same-origin files (icons, manifest): stale-while-revalidate.
-const SHELL = 'lumagrader-shell-v1'
+const SHELL = 'lumagrader-shell-v2' // bump when icons or the manifest change
 const ASSETS = 'lumagrader-assets'
 const MAX_ASSETS = 80
 const SHELL_FILES = ['./', './index.html', './manifest.webmanifest', './favicon-32.png', './icon-192.png']
