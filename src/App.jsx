@@ -198,7 +198,6 @@ export default function App() {
     { label: 'Save to device (.lumagrader)', icon: 'toDevice', onClick: saveToDevice, disabled: saving || !hasImages },
     { sep: true },
     { label: 'Keyboard shortcuts', icon: 'keyboard', kbd: '?', onClick: () => setShowShortcuts(true), hidden: isMobile },
-    kofiUrl() ? { href: kofiUrl(), label: 'Support on Ko-fi', icon: 'coffee' } : null,
     { label: "About · What's new", icon: 'info', onClick: () => setShowAbout(true) },
   ]
 
@@ -247,6 +246,21 @@ export default function App() {
           </div>
         )}
         <div className="header-right">
+          {kofiUrl() && (
+            // Always visible so people who want to support the app find it right away.
+            // Phones: icon only while editing (the header is full), with the label otherwise.
+            <a
+              className={'tbtn donate-btn' + (editingPhoto ? ' is-compact' : '')}
+              href={kofiUrl()}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Support LumaGrader on Ko-fi"
+              aria-label="Support LumaGrader on Ko-fi"
+            >
+              <Icon name="coffee" size={15} />
+              <span className="donate-label">Support</span>
+            </a>
+          )}
           <button
             type="button"
             className={'tbtn save-btn' + (state.isDirty ? ' is-unsaved' : '') + (justSaved ? ' just-saved' : '')}

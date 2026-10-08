@@ -7,6 +7,7 @@ import { renderToCanvas } from '../engine/pipeline'
 import { getFullImage } from '../engine/imageStore'
 import { gpuMaxDimension } from '../engine/webgl/renderer'
 import { resizeCanvas, applyWatermark, formatMime, formatExt, injectExif } from '../engine/exportUtils'
+import { kofiUrl, takeSupportNudge } from '../config'
 
 const RESOLUTIONS = [
   { label: 'Original', value: null },
@@ -115,7 +116,16 @@ export default function ExportModal({ mode, onClose }) {
         setProgress((p) => ({ ...p, stage: 'zip' }))
         download(await zip.generateAsync({ type: 'blob' }), 'lumagrader-export.zip')
       }
-      toast(targets.length === 1 ? `Exported "${targets[0].name.replace(/\.[^.]+$/, '')}" — check your downloads` : `Exported ${targets.length} photos as a .zip — check your downloads`)
+      const done = targets.length === 1 ? `Exported "${targets[0].name.replace(/\.[^.]+$/, '')}" — check your downloads` : `Exported ${targets.length} photos as a .zip — check your downloads`
+      // Once a week, the success message also invites a Ko-fi coffee (never blocks, one tap).
+      if (takeSupportNudge()) {
+        toast(`${done}. Enjoying LumaGrader? A coffee helps keep it free.`, {
+          duration: 10000,
+          action: { label: '☕ Support', onClick: () => window.open(kofiUrl(), '_blank', 'noopener,noreferrer') },
+        })
+      } else {
+        toast(done)
+      }
       onClose()
     } catch (err) {
       console.error('Export failed', err)

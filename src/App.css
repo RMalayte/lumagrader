@@ -758,3 +758,22 @@ input[type=range].lg-slider{--track:#3A3E44;}
 .more-menu{min-width:250px;max-height:calc(100vh - 80px);overflow-y:auto;}
 .more-menu > button,.more-menu > .menu-link{white-space:nowrap;}
 @media (pointer:coarse){.more-menu kbd{display:none;}}
+
+/* Donate (Ko-fi): always in the header, warm Ko-fi red so it's easy to spot. */
+.tbtn.donate-btn{text-decoration:none;color:#FF7B78;background:rgba(255,94,91,.10);border-color:rgba(255,94,91,.28);font-weight:600;}
+.tbtn.donate-btn:hover{background:rgba(255,94,91,.18);border-color:rgba(255,94,91,.45);color:#FF8F8C;}
+/* Phones: the header has no room for words — the coloured coffee icon stands out on its own.
+   Wider phones/tablets in portrait show the label when no photo is open. */
+@media(max-width:859px){
+  .tbtn.donate-btn{padding:4px 7px;}
+  .app-header{min-width:0;}
+  .header-left{min-width:0;flex-shrink:1;}
+  .app-logo{max-width:100%;object-fit:contain;object-position:left center;}
+}
+@media(min-width:560px) and (max-width:859px){
+  .tbtn.donate-btn:not(.is-compact) .donate-label{position:static;width:auto;height:auto;clip:auto;overflow:visible;}
+  .tbtn.donate-btn:not(.is-compact){padding:4px 10px;}
+}
+@media(max-width:559px){
+  .tbtn.donate-btn .donate-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;}
+}
