@@ -793,3 +793,12 @@ a.support-primary{display:flex;align-items:center;justify-content:center;text-de
 a.support-primary:hover{filter:brightness(1.07);}
 @keyframes support-fade{from{opacity:0;}to{opacity:1;}}
 @media (prefers-reduced-motion:reduce){.support-overlay{animation:none;}}
+
+/* Export: file name + where it goes */
+.file-name-row{display:flex;flex-direction:column;gap:6px;margin-bottom:4px;}
+.file-name-label{font-size:12.5px;color:#C9CED5;}
+.file-name-field{display:flex;align-items:center;gap:0;}
+.file-name-field .text-input{flex:1;min-width:0;border-top-right-radius:0;border-bottom-right-radius:0;}
+.file-ext{flex:none;padding:8px 10px;border:1px solid var(--line);border-left:none;border-radius:0 8px 8px 0;background:var(--panel);color:var(--sub);font-size:13px;}
+.file-name-field .text-input:only-child{border-radius:8px;}
+.save-where{margin:8px 0 4px;}

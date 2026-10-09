@@ -8,6 +8,7 @@ import { getFullImage } from '../engine/imageStore'
 import { gpuMaxDimension } from '../engine/webgl/renderer'
 import { resizeCanvas, applyWatermark, formatMime, formatExt, injectExif } from '../engine/exportUtils'
 import { takeSupportNudge, requestSupportPrompt } from '../config'
+import { canPickFile, canPickFolder, safeFileName, stripExt, isAbort, pickSaveFile, pickFolder, writeToHandle, writeToFolder, downloadBlob } from '../engine/saveTarget'
 
 const RESOLUTIONS = [
   { label: 'Original', value: null },
@@ -39,6 +40,15 @@ export default function ExportModal({ mode, onClose }) {
   const [busy, setBusy] = useState(false)
   const [progress, setProgress] = useState(null) // { done, total, stage }
   const [error, setError] = useState(null)
+  // File names and where they go (folder/name pickers where the browser allows it).
+  const baseOf = (name) => (name || 'photo').replace(/\.[^.]+$/, '')
+  const [fileName, setFileName] = useState(() => (mode === 'single' && active ? baseOf(active.name) : 'lumagrader-export'))
+  const [multiTarget, setMultiTarget] = useState('zip') // 'zip' | 'folder'
+  const [naming, setNaming] = useState('original') // 'original' | 'sequence'
+  const [seqBase, setSeqBase] = useState(() => safeFileName(state.currentProjectName || 'LumaGrader'))
+  const single = targets.length === 1
+  const ext = formatExt(format)
+  const usePicker = single || multiTarget === 'zip' ? canPickFile() : canPickFolder()
 
   function updateWatermark(patch) {
     setWatermark((w) => ({ ...w, ...patch }))
@@ -79,54 +89,81 @@ export default function ExportModal({ mode, onClose }) {
     return blob
   }
 
-  function download(blob, filename) {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    setTimeout(() => URL.revokeObjectURL(url), 10000)
+  // Name of each exported photo (without extension), unique within this export.
+  function exportNames() {
+    const digits = Math.max(2, String(targets.length).length)
+    const used = new Set()
+    return targets.map((im, i) => {
+      const base = naming === 'sequence' && !single ? `${safeFileName(seqBase, 'Photo')}_${String(i + 1).padStart(digits, '0')}` : safeFileName(baseOf(im.name))
+      let name = `${base}.${ext}`
+      for (let n = 2; used.has(name.toLowerCase()); n++) name = `${base} (${n}).${ext}`
+      used.add(name.toLowerCase())
+      return name
+    })
   }
 
   async function runExport() {
     if (!targets.length || busy) return
+    const singleName = `${safeFileName(stripExt(fileName.trim(), ext), baseOf(targets[0].name))}.${ext}`
+    const zipName = `${safeFileName(stripExt(fileName.trim(), 'zip'), 'lumagrader-export')}.zip`
+    // Ask where to save FIRST, straight from the click (browsers require that); rendering after.
+    let handle = null, dir = null
+    try {
+      if (single) handle = await pickSaveFile(singleName, formatMime(format), ext)
+      else if (multiTarget === 'zip') handle = await pickSaveFile(zipName, 'application/zip', 'zip')
+      else if (canPickFolder()) dir = await pickFolder()
+    } catch (err) {
+      if (isAbort(err)) return // cancelled the save dialog: stay in the export window
+      console.warn('Save picker unavailable — downloading instead', err)
+    }
     setBusy(true)
     setError(null)
     setProgress({ done: 0, total: targets.length, stage: 'render' })
     try {
-      if (targets.length === 1) {
+      const names = exportNames()
+      let doneMsg
+      if (single) {
         const blob = await renderFinal(targets[0])
-        setProgress({ done: 1, total: 1, stage: 'save' })
         if (!blob) throw new Error('Encoding failed')
-        download(blob, targets[0].name.replace(/\.[^.]+$/, '') + '.' + formatExt(format))
+        setProgress({ done: 1, total: 1, stage: 'save' })
+        if (handle) await writeToHandle(handle, blob)
+        else downloadBlob(blob, singleName)
+        doneMsg = handle ? `Saved "${handle.name}"` : `Exported "${singleName}" — check your Downloads`
+      } else if (dir) {
+        for (let i = 0; i < targets.length; i++) {
+          const blob = await renderFinal(targets[i])
+          if (!blob) throw new Error(`Encoding failed for ${targets[i].name}`)
+          await writeToFolder(dir, names[i], blob)
+          setProgress((p) => ({ ...p, done: p.done + 1 }))
+        }
+        doneMsg = `Saved ${targets.length} photos to "${dir.name}"`
       } else {
         const zip = new JSZip()
-        const used = new Set()
-        for (const im of targets) {
-          const blob = await renderFinal(im)
-          if (!blob) throw new Error(`Encoding failed for ${im.name}`)
-          // Avoid silently overwriting photos that share a filename inside the zip.
-          const base = im.name.replace(/\.[^.]+$/, '')
-          let fname = base + '.' + formatExt(format)
-          for (let n = 2; used.has(fname); n++) fname = `${base} (${n}).${formatExt(format)}`
-          used.add(fname)
-          zip.file(fname, blob)
+        for (let i = 0; i < targets.length; i++) {
+          const blob = await renderFinal(targets[i])
+          if (!blob) throw new Error(`Encoding failed for ${targets[i].name}`)
+          zip.file(names[i], blob)
           setProgress((p) => ({ ...p, done: p.done + 1 }))
         }
         setProgress((p) => ({ ...p, stage: 'zip' }))
-        download(await zip.generateAsync({ type: 'blob' }), 'lumagrader-export.zip')
+        const zipBlob = await zip.generateAsync({ type: 'blob' })
+        if (handle) await writeToHandle(handle, zipBlob)
+        else downloadBlob(zipBlob, zipName)
+        doneMsg = handle ? `Saved ${targets.length} photos in "${handle.name}"` : `Exported ${targets.length} photos as "${zipName}" — check your Downloads`
       }
-      const done = targets.length === 1 ? `Exported "${targets[0].name.replace(/\.[^.]+$/, '')}" — check your downloads` : `Exported ${targets.length} photos as a .zip — check your downloads`
-      toast(done)
+      toast(doneMsg)
       onClose()
-      // Once a week: a centred "Support LumaGrader" card, after the download has started (and
-      // after any "Save as…" dialog is closed) — never before, so it never stands in the way.
+      // Once a week: a centred "Support LumaGrader" card, after the file is saved (and after any
+      // "Save as…" dialog is closed) — never before, so it never stands in the way.
       if (takeSupportNudge()) requestSupportPrompt({ count: targets.length })
     } catch (err) {
       console.error('Export failed', err)
       // Stay open with the reason, so a different size or format can be tried right away.
-      const reason = err?.message && /Encoding failed/.test(err.message) ? err.message + '.' : 'The photo could not be processed.'
-      setError(`Export failed. ${reason} Try a smaller size or another format.`)
+      const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError'
+      const reason = denied
+        ? 'The browser did not allow saving there — pick another folder.'
+        : err?.message && /Encoding failed/.test(err.message) ? err.message + '. Try a smaller size or another format.' : 'The photo could not be processed. Try a smaller size or another format.'
+      setError(`Export failed. ${reason}`)
     } finally {
       setBusy(false)
       setProgress(null)
@@ -151,6 +188,70 @@ export default function ExportModal({ mode, onClose }) {
           <button type="button" className="modal-close" onClick={onClose} disabled={busy} aria-label="Close export">×</button>
         </div>
         <div className="modal-body">
+          <h4 className="modal-subhead">File</h4>
+          {!single && (
+            <div className="presets" role="radiogroup" aria-label="Save as" style={{ marginBottom: 10 }}>
+              {[['zip', 'One .zip file'], ['folder', 'Separate files']].map(([v, label]) => (
+                <button
+                  type="button"
+                  key={v}
+                  role="radio"
+                  aria-checked={multiTarget === v}
+                  className={'preset-chip' + (multiTarget === v ? ' active' : '')}
+                  onClick={() => setMultiTarget(v)}
+                  disabled={v === 'folder' && !canPickFolder()}
+                  title={v === 'folder' && !canPickFolder() ? 'This browser can only download a .zip — use Chrome or Edge on a computer to save into a folder' : undefined}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {(single || multiTarget === 'zip') && (
+            <label className="file-name-row">
+              <span className="file-name-label">{single ? 'File name' : 'Zip name'}</span>
+              <span className="file-name-field">
+                <input
+                  type="text"
+                  className="text-input"
+                  value={fileName}
+                  maxLength={120}
+                  spellCheck={false}
+                  onChange={(e) => setFileName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && runExport()}
+                />
+                <span className="file-ext">.{single ? ext : 'zip'}</span>
+              </span>
+            </label>
+          )}
+          {!single && (
+            <>
+              <div className="presets" role="radiogroup" aria-label="Photo names" style={{ margin: '10px 0' }}>
+                {[['original', 'Original names'], ['sequence', 'Name + number']].map(([v, label]) => (
+                  <button type="button" key={v} role="radio" aria-checked={naming === v} className={'preset-chip' + (naming === v ? ' active' : '')} onClick={() => setNaming(v)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {naming === 'sequence' && (
+                <label className="file-name-row">
+                  <span className="file-name-label">Name</span>
+                  <span className="file-name-field">
+                    <input type="text" className="text-input" value={seqBase} maxLength={80} spellCheck={false} onChange={(e) => setSeqBase(e.target.value)} />
+                  </span>
+                </label>
+              )}
+              <p className="panel-hint">e.g. {exportNames().slice(0, 2).join(', ')}{targets.length > 2 ? ', …' : ''}</p>
+            </>
+          )}
+          <p className="panel-hint save-where">
+            {usePicker
+              ? single || multiTarget === 'zip'
+                ? 'You\'ll choose the folder (and can still rename) when you press Export.'
+                : 'You\'ll choose the folder when you press Export. Existing files are never overwritten.'
+              : 'Saved to your Downloads folder — this browser doesn\'t let apps choose a folder (Chrome or Edge on a computer can).'}
+          </p>
+
           <h4 className="modal-subhead">Format & Quality</h4>
           <div className="presets" style={{ marginBottom: 10 }}>
             {['jpeg', 'png', 'webp'].map((f) => (
@@ -235,7 +336,7 @@ export default function ExportModal({ mode, onClose }) {
         <div className="modal-footer">
           <button className="action secondary" onClick={onClose} disabled={busy}>Cancel</button>
           <button className="action primary" onClick={runExport} disabled={busy || !targets.length}>
-            {busy ? <><span className="spinner" aria-hidden="true" /> Exporting…</> : error ? 'Try again' : `Export ${targets.length > 1 ? `(${targets.length})` : ''}`}
+            {busy ? <><span className="spinner" aria-hidden="true" /> Exporting…</> : error ? 'Try again' : `Export${targets.length > 1 ? ` (${targets.length})` : ''}${usePicker ? '…' : ''}`}
           </button>
         </div>
       </div>
